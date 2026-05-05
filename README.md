@@ -185,14 +185,18 @@ the package.
 
 ## Release Flow
 
-Publishing currently mirrors the Loom3-style tag/release flow.
+Publishing mirrors the Loom3-style tag/release flow. The checked-in
+`package.json` version is a baseline only; the publish workflow resolves the
+actual release version from an existing `vX.Y.Z` tag or from the latest npm
+version, then bumps the patch version in the CI workspace before publishing.
 
 1. Open a PR against `main`.
 2. PR checks run build, typecheck, and tests.
 3. Merge to `main`.
-4. The `Publish to NPM` workflow determines the next patch version, creates or
-   reuses a `vX.Y.Z` tag, builds, tests, and publishes if that npm version does
-   not already exist.
+4. The `Publish to NPM` workflow determines the next patch version with
+   `scripts/ci/determine-release-version.mjs`, creates or reuses a `vX.Y.Z`
+   tag, builds, tests, and publishes if that npm version does not already
+   exist.
 5. Verify the published package.
 
 ```bash
