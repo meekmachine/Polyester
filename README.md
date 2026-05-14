@@ -1,7 +1,7 @@
 # Latticework
 
 `@lovelace_lol/latticework` is the standalone character-runtime package used by
-LoomLarge for speech, conversation, gaze, blinking, hair, lip-sync, and animation
+Character Loom for speech, conversation, gaze, blinking, hair, lip-sync, and animation
 coordination.
 
 Latticework owns character-behavior agencies and runtime helpers. LoomLarge owns
