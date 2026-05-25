@@ -1,5 +1,5 @@
 node_modules
 dist
 coverage
+.shadow-cljs
 .DS_Store
-
