@@ -1,6 +1,7 @@
 (ns latticework.runtime
   (:require [latticework.blink :as blink]
             [latticework.gaze :as gaze]
+            [latticework.hair :as hair]
             [latticework.protocol :as protocol]))
 
 (defn- fn-prop [value key]
@@ -44,6 +45,27 @@
     "removeSnippet"
     (when-let [remove-snippet (fn-prop host "removeSnippet")]
       (remove-snippet (:name output)))
+
+    "applyHairState"
+    (if-let [apply-hair-state (fn-prop host "applyHairState")]
+      (apply-hair-state
+       (protocol/data->js (:state output))
+       (protocol/data->js (:objects output))
+       (protocol/data->js (:objectStates output)))
+      (when-let [apply-object-state (fn-prop host "applyHairStateToObject")]
+        (doseq [{:keys [name objectState]} (:objectStates output)]
+          (apply-object-state name (protocol/data->js objectState)))))
+
+    "applyHairPhysics"
+    (if-let [apply-hair-physics (fn-prop host "applyHairPhysics")]
+      (apply-hair-physics
+       (:enabled output)
+       (protocol/data->js (:config output)))
+      (do
+        (when-let [set-physics-config (fn-prop host "setHairPhysicsConfig")]
+          (set-physics-config (protocol/data->js (:config output))))
+        (when-let [set-physics-enabled (fn-prop host "setHairPhysicsEnabled")]
+          (set-physics-enabled (:enabled output)))))
 
     "error"
     (if-let [on-error (fn-prop host "onError")]
@@ -154,6 +176,64 @@
                        (emit! (gaze/stop! state))
                        (reset! disposed true))}))))
 
+(defn create-in-process-hair-agency
+  ([config] (create-in-process-hair-agency config nil))
+  ([config host]
+   (let [state (hair/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)]
+     (letfn [(emit! [outputs]
+               (when-not @disposed
+                 (apply-outputs! host outputs))
+               outputs)]
+       (emit! [(protocol/emit-state hair/agency-name (hair/snapshot state))])
+       #js {:configure (fn [next-config]
+                         (emit! (hair/configure! state (protocol/js->data next-config))))
+            :registerObjects (fn [objects]
+                               (emit! (hair/register-objects! state (protocol/js->data objects))))
+            :send (fn [event]
+                    (emit! (hair/handle-command!
+                            state
+                            {:type "send" :event (protocol/js->data event)})))
+            :setHairColor (fn [color]
+                            (emit! (hair/set-hair-color! state (protocol/js->data color))))
+            :setEyebrowColor (fn [color]
+                               (emit! (hair/set-eyebrow-color! state (protocol/js->data color))))
+            :setHairBaseColor (fn [base-color]
+                                (emit! (hair/set-hair-base-color! state base-color)))
+            :setEyebrowBaseColor (fn [base-color]
+                                   (emit! (hair/set-eyebrow-base-color! state base-color)))
+            :setHairGlow (fn [emissive intensity]
+                           (emit! (hair/set-hair-glow! state emissive intensity)))
+            :setEyebrowGlow (fn [emissive intensity]
+                              (emit! (hair/set-eyebrow-glow! state emissive intensity)))
+            :setOutline (fn
+                          ([show] (emit! (hair/set-outline! state show nil nil)))
+                          ([show color] (emit! (hair/set-outline! state show color nil)))
+                          ([show color opacity] (emit! (hair/set-outline! state show color opacity))))
+            :setPartVisibility (fn [part-name visible]
+                                  (emit! (hair/set-part-visibility! state part-name visible)))
+            :setPartScale (fn [part-name scale]
+                            (emit! (hair/set-part-scale! state part-name scale)))
+            :setPartPosition (fn [part-name position]
+                               (emit! (hair/set-part-position! state part-name (protocol/js->data position))))
+            :resetToDefault (fn []
+                              (emit! (hair/reset-to-default! state)))
+            :setPhysicsEnabled (fn [enabled]
+                                  (emit! (hair/set-physics-enabled! state enabled)))
+            :updatePhysicsConfig (fn [config]
+                                   (emit! (hair/update-physics-config! state (protocol/js->data config))))
+            :getState (fn []
+                        (protocol/data->js (hair/snapshot state)))
+            :getHairState (fn []
+                            (protocol/data->js (hair/hair-snapshot state)))
+            :getPhysicsConfig (fn []
+                                (protocol/data->js
+                                 (assoc (get-in (hair/snapshot state) [:physics :config])
+                                        :enabled (get-in (hair/snapshot state) [:physics :enabled]))))
+            :dispose (fn []
+                       (reset! disposed true))}))))
+
 (defn create-worker-client [worker host]
   (let [host (or host #js {})
         disposed (atom false)
@@ -196,6 +276,46 @@
                             (.post client command))))
          :reset (fn []
                   (.post client #js {:agency "blink" :type "reset"}))
+         :dispose (fn []
+                    (.dispose client))}))
+
+(defn create-hair-worker-client [worker host]
+  (let [client (create-worker-client worker host)]
+    #js {:configure (fn [config]
+                      (.configure client hair/agency-name config))
+         :registerObjects (fn [objects]
+                            (.post client #js {:agency "hair" :type "registerObjects" :objects objects}))
+         :send (fn [event]
+                 (.post client #js {:agency "hair" :type "send" :event event}))
+         :setHairColor (fn [color]
+                         (.post client #js {:agency "hair" :type "setHairColor" :color color}))
+         :setEyebrowColor (fn [color]
+                            (.post client #js {:agency "hair" :type "setEyebrowColor" :color color}))
+         :setHairBaseColor (fn [base-color]
+                             (.post client #js {:agency "hair" :type "setHairBaseColor" :baseColor base-color}))
+         :setEyebrowBaseColor (fn [base-color]
+                                (.post client #js {:agency "hair" :type "setEyebrowBaseColor" :baseColor base-color}))
+         :setHairGlow (fn [emissive intensity]
+                        (.post client #js {:agency "hair" :type "setHairGlow" :emissive emissive :intensity intensity}))
+         :setEyebrowGlow (fn [emissive intensity]
+                           (.post client #js {:agency "hair" :type "setEyebrowGlow" :emissive emissive :intensity intensity}))
+         :setOutline (fn
+                       ([show] (.post client #js {:agency "hair" :type "setOutline" :show show}))
+                       ([show color] (.post client #js {:agency "hair" :type "setOutline" :show show :color color}))
+                       ([show color opacity]
+                        (.post client #js {:agency "hair" :type "setOutline" :show show :color color :opacity opacity})))
+         :setPartVisibility (fn [part-name visible]
+                              (.post client #js {:agency "hair" :type "setPartVisibility" :partName part-name :visible visible}))
+         :setPartScale (fn [part-name scale]
+                         (.post client #js {:agency "hair" :type "setPartScale" :partName part-name :scale scale}))
+         :setPartPosition (fn [part-name position]
+                            (.post client #js {:agency "hair" :type "setPartPosition" :partName part-name :position position}))
+         :resetToDefault (fn []
+                           (.post client #js {:agency "hair" :type "resetToDefault"}))
+         :setPhysicsEnabled (fn [enabled]
+                              (.post client #js {:agency "hair" :type "setPhysicsEnabled" :enabled enabled}))
+         :updatePhysicsConfig (fn [config]
+                                (.post client #js {:agency "hair" :type "updatePhysicsConfig" :config config}))
          :dispose (fn []
                     (.dispose client))}))
 

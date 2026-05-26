@@ -1,4 +1,4 @@
-import { createBlinkAgency, createGazeAgency } from '../dist/cljs/index.js';
+import { createBlinkAgency, createGazeAgency, createHairAgency } from '../dist/cljs/index.js';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -150,4 +150,100 @@ if (gazeStates.length < 4) {
 
 gaze.dispose();
 
-console.log(`CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; gaze snippets ${gazeScheduled.length}`);
+const hairObjectStates = [];
+const hairPhysicsUpdates = [];
+const hairStates = [];
+
+const hair = createHairAgency(
+  undefined,
+  {
+    applyHairStateToObject(name, objectState) {
+      hairObjectStates.push({ name, objectState });
+    },
+    applyHairPhysics(enabled, config) {
+      hairPhysicsUpdates.push({ enabled, config });
+    },
+    onState(state) {
+      if (state?.hairState) {
+        hairStates.push(state);
+      }
+    },
+  },
+);
+
+hair.registerObjects([
+  { name: 'Bangs', isEyebrow: false, isMesh: true },
+  { name: 'Left_Brow', isEyebrow: true, isMesh: true },
+  { name: 'Hair_Root', isEyebrow: false, isMesh: false },
+]);
+
+if (hairObjectStates.length !== 0) {
+  throw new Error('Expected registerObjects to preserve model hair without applying default colors');
+}
+
+hair.setHairBaseColor('#112233');
+
+if (hairObjectStates.length !== 2) {
+  throw new Error(`Expected two mesh hair object updates, received ${hairObjectStates.length}`);
+}
+
+const bangsUpdate = hairObjectStates.find((entry) => entry.name === 'Bangs');
+if (bangsUpdate?.objectState.color.baseColor !== '#112233') {
+  throw new Error(`Expected Bangs base color to update, received ${bangsUpdate?.objectState.color.baseColor}`);
+}
+
+const eyebrowUpdate = hairObjectStates.find((entry) => entry.name === 'Left_Brow');
+if (eyebrowUpdate?.objectState.color.baseColor !== '#4a3728') {
+  throw new Error(`Expected eyebrow color to remain default brown, received ${eyebrowUpdate?.objectState.color.baseColor}`);
+}
+
+hair.setPartVisibility('Bangs', false);
+hair.setPartScale('Bangs', 1.25);
+hair.setPartPosition('Bangs', [0.1, -0.2, 0.3]);
+hair.setOutline(true, '#ff00ff', 0.5);
+hair.send({ type: 'SET_EYEBROW_BASE_COLOR', baseColor: '#445566' });
+hair.setPhysicsEnabled(true);
+hair.updatePhysicsConfig({ windStrength: 0.4 });
+
+const hairState = hair.getState();
+const bangsState = hairState.hairState.parts.Bangs;
+
+if (hairState.hairState.hairColor.baseColor !== '#112233') {
+  throw new Error(`Expected hair color in CLJS state, received ${hairState.hairState.hairColor.baseColor}`);
+}
+
+if (hairState.hairState.eyebrowColor.baseColor !== '#445566') {
+  throw new Error(`Expected eyebrow color from legacy event, received ${hairState.hairState.eyebrowColor.baseColor}`);
+}
+
+if (bangsState?.visible !== false || bangsState?.scale !== 1.25 || bangsState?.position?.[2] !== 0.3) {
+  throw new Error(`Unexpected Bangs part state: ${JSON.stringify(bangsState)}`);
+}
+
+if (hairState.hairState.showOutline !== true || hairState.hairState.outlineOpacity !== 0.5) {
+  throw new Error(`Unexpected outline state: ${JSON.stringify(hairState.hairState)}`);
+}
+
+const physicsConfig = hair.getPhysicsConfig();
+if (physicsConfig.enabled !== true || physicsConfig.windStrength !== 0.4) {
+  throw new Error(`Unexpected hair physics config: ${JSON.stringify(physicsConfig)}`);
+}
+
+if (hairPhysicsUpdates.length !== 2) {
+  throw new Error(`Expected two hair physics updates, received ${hairPhysicsUpdates.length}`);
+}
+
+hair.resetToDefault();
+if (hair.getHairState().hairColor.baseColor !== '#4a3728') {
+  throw new Error('Expected resetToDefault to restore natural brown hair');
+}
+
+if (hairStates.length < 8) {
+  throw new Error(`Expected hair state callbacks for registration and updates, received ${hairStates.length}`);
+}
+
+hair.dispose();
+
+console.log(
+  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; gaze snippets ${gazeScheduled.length}; hair states ${hairStates.length}`,
+);
