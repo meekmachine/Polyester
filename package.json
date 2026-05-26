@@ -11,10 +11,18 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./cljs": {
+      "types": "./types/cljs.d.ts",
+      "import": "./dist/cljs/index.js"
+    },
+    "./cljs-worker": {
+      "default": "./dist/cljs-worker/worker.js"
     }
   },
   "files": [
     "dist",
+    "types",
     "README.md",
     "LICENSE"
   ],
@@ -22,10 +30,13 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node scripts/copy-snippets.mjs",
+    "build": "tsup && npm run build:cljs && node scripts/copy-snippets.mjs",
+    "build:cljs": "shadow-cljs release npm worker",
     "dev": "tsup --watch",
+    "dev:cljs": "shadow-cljs watch npm worker",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-blink.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepare": "npm run build",
@@ -41,6 +52,7 @@
   "devDependencies": {
     "@types/node": "^25.0.9",
     "@vitest/coverage-v8": "^3.2.4",
+    "shadow-cljs": "^3.4.11",
     "tsup": "^8.0.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
