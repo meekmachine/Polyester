@@ -3,6 +3,7 @@
             [latticework.blink :as blink]
             [latticework.gaze :as gaze]
             [latticework.hair :as hair]
+            [latticework.lipsync :as lipsync]
             [latticework.prosodic :as prosodic]
             [latticework.protocol :as protocol]
             [latticework.vocal :as vocal]))
@@ -144,6 +145,14 @@
     "vocalCleanupPlan"
     (when-let [on-vocal-cleanup-plan (fn-prop host "onVocalCleanupPlan")]
       (on-vocal-cleanup-plan (protocol/data->js (:plan output))))
+
+    "lipsyncEvent"
+    (when-let [on-lipsync-event (fn-prop host "onLipSyncEvent")]
+      (on-lipsync-event (protocol/data->js (:event output))))
+
+    "lipsyncCleanupPlan"
+    (when-let [on-lipsync-cleanup-plan (fn-prop host "onLipSyncCleanupPlan")]
+      (on-lipsync-cleanup-plan (protocol/data->js (:plan output))))
 
     "applyHairState"
     (if-let [apply-hair-state (fn-prop host "applyHairState")]
@@ -441,6 +450,73 @@
                        (clear-all-cleanups!)
                        (reset! disposed true))}))))
 
+(defn create-in-process-lipsync-agency
+  ([config] (create-in-process-lipsync-agency config nil))
+  ([config host]
+   (let [state (lipsync/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)
+         cleanup-timers (atom {})]
+     (letfn [(clear-cleanup! [name]
+               (when-let [timer (get @cleanup-timers name)]
+                 (js/clearTimeout timer)
+                 (swap! cleanup-timers dissoc name)))
+             (clear-all-cleanups! []
+               (doseq [timer (vals @cleanup-timers)]
+                 (js/clearTimeout timer))
+               (reset! cleanup-timers {}))
+             (schedule-cleanup! [plan]
+               (let [name (:name plan)]
+                 (when name
+                   (clear-cleanup! name)
+                   (swap! cleanup-timers
+                          assoc
+                          name
+                          (js/setTimeout
+                           (fn []
+                             (clear-cleanup! name)
+                             (when-not @disposed
+                               (emit! (lipsync/cleanup! state name))))
+                           (max 0 (:delayMs plan)))))))
+             (sync-timers! [outputs]
+               (doseq [output outputs]
+                 (case (:type output)
+                   "lipsyncCleanupPlan" (schedule-cleanup! (:plan output))
+                   "removeSnippet" (clear-cleanup! (:name output))
+                   nil)))
+             (emit! [command-result]
+               (let [outputs (:outputs command-result)]
+                 (sync-timers! outputs)
+                 (when-not @disposed
+                   (apply-outputs! host outputs))
+                 command-result))]
+       (apply-outputs! host [(protocol/emit-state lipsync/agency-name (lipsync/snapshot state))])
+       #js {:startSpeech (fn []
+                           (:result (emit! (lipsync/start-speech! state))))
+            :processWord (fn
+                           ([word word-index]
+                            (:result (emit! (lipsync/process-word! state word word-index nil nil))))
+                           ([word word-index actual-duration-ms]
+                            (:result (emit! (lipsync/process-word! state word word-index actual-duration-ms nil)))))
+            :processAzureVisemes (fn
+                                   ([events] (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) nil nil))))
+                                   ([events total-duration-ms]
+                                    (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) total-duration-ms nil)))))
+            :endSpeech (fn []
+                         (:result (emit! (lipsync/end-speech! state))))
+            :stop (fn []
+                    (:result (emit! (lipsync/stop! state))))
+            :updateConfig (fn [config]
+                            (:result (emit! (lipsync/update-config! state (protocol/js->data config)))))
+            :getState (fn []
+                        (protocol/data->js (lipsync/lipsync-state state)))
+            :getSnapshot (fn []
+                           (protocol/data->js (lipsync/snapshot state)))
+            :dispose (fn []
+                       (emit! (lipsync/stop! state))
+                       (clear-all-cleanups!)
+                       (reset! disposed true))}))))
+
 (defn create-in-process-hair-agency
   ([config] (create-in-process-hair-agency config nil))
   ([config host]
@@ -665,6 +741,61 @@
                                 ([events name] (.post client #js {:agency "vocal" :type "processVisemeEvents" :events events :name name})))
          :stop (fn []
                  (.post client #js {:agency "vocal" :type "stop"}))
+         :dispose (fn []
+                    (clear-all-cleanups!)
+                    (.dispose client))}))
+
+(defn create-lipsync-worker-client [worker host]
+  (let [host (or host #js {})
+        cleanup-timers (atom {})
+        client-ref (atom nil)
+        clear-cleanup! (fn [name]
+                         (when-let [timer (get @cleanup-timers name)]
+                           (js/clearTimeout timer)
+                           (swap! cleanup-timers dissoc name)))
+        clear-all-cleanups! (fn []
+                              (doseq [timer (vals @cleanup-timers)]
+                                (js/clearTimeout timer))
+                              (reset! cleanup-timers {}))
+        wrapped-host (js/Object.assign
+                      #js {}
+                      host
+                      #js {:onLipSyncCleanupPlan
+                           (fn [plan]
+                             (when-let [on-lipsync-cleanup-plan (fn-prop host "onLipSyncCleanupPlan")]
+                               (on-lipsync-cleanup-plan plan))
+                             (let [name (aget plan "name")
+                                   delay-ms (or (aget plan "delayMs") 0)]
+                               (when name
+                                 (clear-cleanup! name)
+                                 (swap! cleanup-timers
+                                        assoc
+                                        name
+                                        (js/setTimeout
+                                         (fn []
+                                           (clear-cleanup! name)
+                                           (when-let [client @client-ref]
+                                             (.post ^js client #js {:agency "lipsync" :type "cleanup" :name name})))
+                                         (max 0 delay-ms))))))})
+        client (create-worker-client worker wrapped-host)]
+    (reset! client-ref client)
+    #js {:startSpeech (fn []
+                        (.post client #js {:agency "lipsync" :type "startSpeech"}))
+         :processWord (fn
+                        ([word word-index]
+                         (.post client #js {:agency "lipsync" :type "processWord" :word word :wordIndex word-index}))
+                        ([word word-index actual-duration-ms]
+                         (.post client #js {:agency "lipsync" :type "processWord" :word word :wordIndex word-index :actualDurationMs actual-duration-ms})))
+         :processAzureVisemes (fn
+                                ([events] (.post client #js {:agency "lipsync" :type "processAzureVisemes" :events events}))
+                                ([events total-duration-ms]
+                                 (.post client #js {:agency "lipsync" :type "processAzureVisemes" :events events :totalDurationMs total-duration-ms})))
+         :endSpeech (fn []
+                      (.post client #js {:agency "lipsync" :type "endSpeech"}))
+         :stop (fn []
+                 (.post client #js {:agency "lipsync" :type "stop"}))
+         :updateConfig (fn [config]
+                         (.post client #js {:agency "lipsync" :type "updateConfig" :config config}))
          :dispose (fn []
                     (clear-all-cleanups!)
                     (.dispose client))}))

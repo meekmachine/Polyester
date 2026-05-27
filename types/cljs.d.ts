@@ -28,6 +28,8 @@ export interface WorkerAgencyHost {
   onProsodicFadePlan?: (plan: ProsodicFadePlan) => void;
   onVocalEvent?: (event: VocalEvent) => void;
   onVocalCleanupPlan?: (plan: VocalCleanupPlan) => void;
+  onLipSyncEvent?: (event: LipSyncEvent) => void;
+  onLipSyncCleanupPlan?: (plan: LipSyncCleanupPlan) => void;
   applyHairState?: (
     state: HairState,
     objects: HairObjectRef[],
@@ -470,6 +472,63 @@ export interface VocalAgency {
   dispose(): void;
 }
 
+export interface LipSyncConfig {
+  engine?: 'webSpeech' | 'sapi' | string;
+  onsetIntensity?: number;
+  holdMs?: number;
+  speechRate?: number;
+  lipsyncIntensity?: number;
+  jawScale?: number;
+}
+
+export interface LipSyncState {
+  status: 'idle' | 'speaking' | 'ending';
+  wordCount: number;
+  isSpeaking: boolean;
+}
+
+export interface LipSyncSnapshot extends LipSyncState {
+  activeSnippets: string[];
+  lastWord: string | null;
+  config: Required<LipSyncConfig>;
+  eventCount: number;
+  lastUpdatedTime: number | null;
+}
+
+export interface LipSyncAzureVisemeEvent {
+  visemeId?: number;
+  viseme_id?: number;
+  time?: number;
+  audio_offset?: number;
+}
+
+export interface LipSyncEvent {
+  type: string;
+  timestamp: number;
+  word?: string;
+  wordIndex?: number;
+  snippetName?: string;
+  eventCount?: number;
+  [key: string]: unknown;
+}
+
+export interface LipSyncCleanupPlan {
+  name: string;
+  delayMs: number;
+}
+
+export interface LipSyncAgency {
+  startSpeech(): boolean;
+  processWord(word: string, wordIndex: number, actualDurationMs?: number): string | null;
+  processAzureVisemes(events: LipSyncAzureVisemeEvent[], totalDurationMs?: number): string | null;
+  endSpeech(): string | null;
+  stop(): boolean;
+  updateConfig(config: LipSyncConfig): boolean;
+  getState(): LipSyncState;
+  getSnapshot(): LipSyncSnapshot;
+  dispose(): void;
+}
+
 export interface HairColor {
   name: string;
   baseColor: string;
@@ -699,11 +758,22 @@ export interface VocalWorkerClient {
   dispose(): void;
 }
 
+export interface LipSyncWorkerClient {
+  startSpeech(): void;
+  processWord(word: string, wordIndex: number, actualDurationMs?: number): void;
+  processAzureVisemes(events: LipSyncAzureVisemeEvent[], totalDurationMs?: number): void;
+  endSpeech(): void;
+  stop(): void;
+  updateConfig(config: LipSyncConfig): void;
+  dispose(): void;
+}
+
 export interface LatticeworkCljsApi {
   createAnimationAgency(config?: Partial<AnimationAgencyState>, host?: WorkerAgencyHost): AnimationAgency;
   createBlinkAgency(config?: BlinkAgencyConfig, host?: WorkerAgencyHost): BlinkAgency;
   createGazeAgency(config?: GazeAgencyConfig, host?: WorkerAgencyHost): GazeAgency;
   createHairAgency(config?: HairAgencyConfig, host?: WorkerAgencyHost): HairAgency;
+  createLipSyncAgency(config?: LipSyncConfig, host?: WorkerAgencyHost): LipSyncAgency;
   createProsodicAgency(config?: ProsodicConfig, host?: WorkerAgencyHost): ProsodicAgency;
   createVocalAgency(config?: VocalConfig, host?: WorkerAgencyHost): VocalAgency;
   createAgencyWorkerClient(worker: Worker, host?: WorkerAgencyHost): WorkerAgencyClient;
@@ -711,6 +781,7 @@ export interface LatticeworkCljsApi {
   createBlinkWorkerClient(worker: Worker, host?: WorkerAgencyHost): BlinkWorkerClient;
   createGazeWorkerClient(worker: Worker, host?: WorkerAgencyHost): GazeWorkerClient;
   createHairWorkerClient(worker: Worker, host?: WorkerAgencyHost): HairWorkerClient;
+  createLipSyncWorkerClient(worker: Worker, host?: WorkerAgencyHost): LipSyncWorkerClient;
   createProsodicWorkerClient(worker: Worker, host?: WorkerAgencyHost): ProsodicWorkerClient;
   createVocalWorkerClient(worker: Worker, host?: WorkerAgencyHost): VocalWorkerClient;
 }
@@ -734,6 +805,11 @@ export declare function createHairAgency(
   config?: HairAgencyConfig,
   host?: WorkerAgencyHost,
 ): HairAgency;
+
+export declare function createLipSyncAgency(
+  config?: LipSyncConfig,
+  host?: WorkerAgencyHost,
+): LipSyncAgency;
 
 export declare function createProsodicAgency(
   config?: ProsodicConfig,
@@ -769,6 +845,11 @@ export declare function createHairWorkerClient(
   worker: Worker,
   host?: WorkerAgencyHost,
 ): HairWorkerClient;
+
+export declare function createLipSyncWorkerClient(
+  worker: Worker,
+  host?: WorkerAgencyHost,
+): LipSyncWorkerClient;
 
 export declare function createProsodicWorkerClient(
   worker: Worker,

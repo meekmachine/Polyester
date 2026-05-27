@@ -3,6 +3,7 @@ import {
   createBlinkAgency,
   createGazeAgency,
   createHairAgency,
+  createLipSyncAgency,
   createProsodicAgency,
   createVocalAgency,
 } from '../dist/cljs/index.js';
@@ -496,6 +497,110 @@ if (vocalStates.length < 5) {
 
 vocal.dispose();
 
+const lipSyncScheduled = [];
+const lipSyncRemoved = [];
+const lipSyncEvents = [];
+const lipSyncCleanupPlans = [];
+const lipSyncStates = [];
+
+const lipSync = createLipSyncAgency(
+  { lipsyncIntensity: 0.75, speechRate: 1.0, jawScale: 1.2 },
+  {
+    scheduleSnippet(snippet, opts) {
+      lipSyncScheduled.push({ snippet, opts });
+      return snippet.name;
+    },
+    removeSnippet(name) {
+      lipSyncRemoved.push(name);
+    },
+    onLipSyncEvent(event) {
+      lipSyncEvents.push(event);
+    },
+    onLipSyncCleanupPlan(plan) {
+      lipSyncCleanupPlans.push(plan);
+    },
+    onState(state) {
+      if (state?.config?.lipsyncIntensity === 0.75) {
+        lipSyncStates.push(state);
+      }
+    },
+  },
+);
+
+lipSync.startSpeech();
+const lipSyncWordName = lipSync.processWord('Hello', 0, 300);
+if (!lipSyncWordName?.startsWith('lipsync_hello_')) {
+  throw new Error(`Expected CLJS lipsync word snippet name, received ${lipSyncWordName}`);
+}
+
+if (lipSyncScheduled.length !== 1) {
+  throw new Error(`Expected CLJS lipsync word to schedule one snippet, received ${lipSyncScheduled.length}`);
+}
+
+const lipSyncWordSnippet = lipSyncScheduled[0].snippet;
+if (lipSyncWordSnippet.snippetCategory !== 'visemeSnippet' || lipSyncWordSnippet.snippetJawScale !== 1.2) {
+  throw new Error(`Unexpected CLJS lipsync word snippet: ${JSON.stringify(lipSyncWordSnippet)}`);
+}
+
+if (!lipSyncWordSnippet.curves?.['1']?.length) {
+  throw new Error(`Expected CLJS lipsync word to include open-mouth viseme curves, received ${JSON.stringify(lipSyncWordSnippet.curves)}`);
+}
+
+let lipSyncState = lipSync.getState();
+if (lipSyncState.status !== 'speaking' || lipSyncState.wordCount !== 1 || lipSyncState.isSpeaking !== true) {
+  throw new Error(`Unexpected CLJS lipsync state after word: ${JSON.stringify(lipSyncState)}`);
+}
+
+const lipSyncAzureName = lipSync.processAzureVisemes(
+  [
+    { visemeId: 1, time: 0 },
+    { visemeId: 4, time: 0.12 },
+  ],
+  240,
+);
+
+if (!lipSyncAzureName?.startsWith('azure_lipsync_')) {
+  throw new Error(`Expected CLJS lipsync Azure name, received ${lipSyncAzureName}`);
+}
+
+if (lipSyncScheduled.length !== 2 || lipSyncScheduled[1].snippet.snippetIntensityScale !== 0.75) {
+  throw new Error(`Expected CLJS lipsync Azure scheduling with configured intensity, received ${JSON.stringify(lipSyncScheduled[1])}`);
+}
+
+const neutralName = lipSync.endSpeech();
+if (!neutralName?.startsWith('neutral_')) {
+  throw new Error(`Expected CLJS lipsync neutral return name, received ${neutralName}`);
+}
+
+lipSyncState = lipSync.getState();
+if (lipSyncState.status !== 'ending' || lipSyncState.isSpeaking !== false) {
+  throw new Error(`Expected CLJS lipsync ending state, received ${JSON.stringify(lipSyncState)}`);
+}
+
+if (lipSyncScheduled[2].snippet.curves['0']?.[0]?.inherit !== true) {
+  throw new Error(`Expected CLJS lipsync neutral return to inherit current visemes, received ${JSON.stringify(lipSyncScheduled[2])}`);
+}
+
+if (lipSyncCleanupPlans.length < 3) {
+  throw new Error(`Expected CLJS lipsync cleanup plans, received ${JSON.stringify(lipSyncCleanupPlans)}`);
+}
+
+lipSync.stop();
+if (!lipSyncRemoved.includes(lipSyncWordName) || !lipSyncRemoved.includes(lipSyncAzureName)) {
+  throw new Error(`Expected CLJS lipsync stop to remove active snippets, removed ${lipSyncRemoved.join(', ')}`);
+}
+
+if (!lipSyncEvents.some((event) => event.type === 'WORD_SCHEDULED') ||
+    !lipSyncEvents.some((event) => event.type === 'AZURE_SCHEDULED')) {
+  throw new Error(`Expected CLJS lipsync scheduling events, received ${JSON.stringify(lipSyncEvents)}`);
+}
+
+if (lipSyncStates.length < 5) {
+  throw new Error(`Expected CLJS lipsync state callbacks, received ${lipSyncStates.length}`);
+}
+
+lipSync.dispose();
+
 const hairObjectStates = [];
 const hairPhysicsUpdates = [];
 const hairStates = [];
@@ -591,5 +696,5 @@ if (hairStates.length < 8) {
 hair.dispose();
 
 console.log(
-  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; hair states ${hairStates.length}`,
+  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; lipsync states ${lipSyncStates.length}; hair states ${hairStates.length}`,
 );

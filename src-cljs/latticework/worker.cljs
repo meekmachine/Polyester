@@ -3,6 +3,7 @@
             [latticework.blink :as blink]
             [latticework.gaze :as gaze]
             [latticework.hair :as hair]
+            [latticework.lipsync :as lipsync]
             [latticework.prosodic :as prosodic]
             [latticework.protocol :as protocol]
             [latticework.vocal :as vocal]))
@@ -12,6 +13,7 @@
 (defonce blink-auto-timer (atom nil))
 (defonce gaze-state (gaze/create-state))
 (defonce hair-state (hair/create-state))
+(defonce lipsync-state (lipsync/create-state))
 (defonce prosodic-state (prosodic/create-state))
 (defonce vocal-state (vocal/create-state))
 
@@ -56,6 +58,7 @@
               outputs)
     "gaze" (gaze/handle-command! gaze-state command)
     "hair" (hair/handle-command! hair-state command)
+    "lipsync" (:outputs (lipsync/handle-command! lipsync-state command))
     "prosodic" (prosodic/handle-command! prosodic-state command)
     "vocal" (:outputs (vocal/handle-command! vocal-state command))
     [(protocol/emit-error
@@ -72,6 +75,7 @@
   (post-output! (protocol/emit-state blink/agency-name (blink/snapshot blink-state)))
   (post-output! (protocol/emit-state gaze/agency-name (gaze/snapshot gaze-state)))
   (post-output! (protocol/emit-state hair/agency-name (hair/snapshot hair-state)))
+  (post-output! (protocol/emit-state lipsync/agency-name (lipsync/snapshot lipsync-state)))
   (post-output! (protocol/emit-state prosodic/agency-name (prosodic/snapshot prosodic-state)))
   (post-output! (protocol/emit-state vocal/agency-name (vocal/snapshot vocal-state)))
   (sync-blink-auto!))
