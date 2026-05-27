@@ -13,6 +13,10 @@
   ([config] (runtime/create-in-process-gaze-agency config nil))
   ([config host] (runtime/create-in-process-gaze-agency config host)))
 
+(defn create-eye-head-tracking-agency
+  ([config] (runtime/create-in-process-eye-head-tracking-agency config nil))
+  ([config host] (runtime/create-in-process-eye-head-tracking-agency config host)))
+
 (defn create-hair-agency
   ([config] (runtime/create-in-process-hair-agency config nil))
   ([config host] (runtime/create-in-process-hair-agency config host)))
@@ -41,6 +45,9 @@
 (defn create-gaze-worker-client [worker host]
   (runtime/create-gaze-worker-client worker host))
 
+(defn create-eye-head-tracking-worker-client [worker host]
+  (runtime/create-eye-head-tracking-worker-client worker host))
+
 (defn create-hair-worker-client [worker host]
   (runtime/create-hair-worker-client worker host))
 
@@ -59,6 +66,7 @@
    (let [api #js {:createBlinkAgency create-blink-agency
                   :createAnimationAgency create-animation-agency
                   :createGazeAgency create-gaze-agency
+                  :createEyeHeadTrackingAgency create-eye-head-tracking-agency
                   :createHairAgency create-hair-agency
                   :createLipSyncAgency create-lipsync-agency
                   :createProsodicAgency create-prosodic-agency
@@ -67,6 +75,7 @@
                   :createAnimationWorkerClient create-animation-worker-client
                   :createBlinkWorkerClient create-blink-worker-client
                   :createGazeWorkerClient create-gaze-worker-client
+                  :createEyeHeadTrackingWorkerClient create-eye-head-tracking-worker-client
                   :createHairWorkerClient create-hair-worker-client
                   :createLipSyncWorkerClient create-lipsync-worker-client
                   :createProsodicWorkerClient create-prosodic-worker-client

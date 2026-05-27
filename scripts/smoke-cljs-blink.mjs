@@ -1,6 +1,7 @@
 import {
   createAnimationAgency,
   createBlinkAgency,
+  createEyeHeadTrackingAgency,
   createGazeAgency,
   createHairAgency,
   createLipSyncAgency,
@@ -288,6 +289,100 @@ if (gazeStates.length < 4) {
 }
 
 gaze.dispose();
+
+const eyeHeadScheduled = [];
+const eyeHeadRemoved = [];
+const eyeHeadEffects = [];
+const eyeHeadStates = [];
+
+const eyeHead = createEyeHeadTrackingAgency(
+  {
+    eyeTrackingEnabled: true,
+    headTrackingEnabled: true,
+    headFollowEyes: true,
+    agencyTransitionDuration: 180,
+    eyeIntensity: 1.0,
+    headIntensity: 0.5,
+  },
+  {
+    scheduleSnippet(snippet, opts) {
+      eyeHeadScheduled.push({ snippet, opts });
+      return snippet.name;
+    },
+    removeSnippet(name) {
+      eyeHeadRemoved.push(name);
+    },
+    pauseSnippet(name) {
+      eyeHeadEffects.push({ op: 'pause', name });
+    },
+    resumeSnippet(name) {
+      eyeHeadEffects.push({ op: 'resume', name });
+    },
+    onAnimationEffect(effect) {
+      eyeHeadEffects.push(effect);
+    },
+    onState(state) {
+      if (state?.currentGaze && state?.targetGaze) {
+        eyeHeadStates.push(state);
+      }
+    },
+  },
+);
+
+eyeHead.setMode('manual');
+const eyeHeadScheduledTarget = eyeHead.setGazeTarget({ x: 0.4, y: 0.2, z: 0 });
+if (eyeHeadScheduledTarget !== true) {
+  throw new Error('Expected CLJS eye/head tracking target to schedule snippets');
+}
+
+for (const name of [
+  'eyeHeadTracking/eyeYaw',
+  'eyeHeadTracking/eyePitch',
+  'eyeHeadTracking/headYaw',
+  'eyeHeadTracking/headPitch',
+  'eyeHeadTracking/headRoll',
+]) {
+  const scheduledEntry = eyeHeadScheduled.find((entry) => entry.snippet.name === name);
+  if (!scheduledEntry) {
+    throw new Error(`Expected CLJS eye/head tracking snippet ${name}`);
+  }
+  if (scheduledEntry.opts?.autoPlay !== true) {
+    throw new Error(`Expected CLJS eye/head tracking snippet ${name} to autoPlay`);
+  }
+  for (const curve of Object.values(scheduledEntry.snippet.curves ?? {})) {
+    if (curve[0]?.inherit !== true) {
+      throw new Error(`Expected CLJS eye/head tracking inherited first keyframe for ${name}`);
+    }
+  }
+}
+
+let eyeHeadState = eyeHead.getState();
+if (eyeHeadState.eyeStatus !== 'tracking' || eyeHeadState.headStatus !== 'tracking') {
+  throw new Error(`Expected CLJS eye/head tracking state to be tracking, received ${JSON.stringify(eyeHeadState)}`);
+}
+
+eyeHead.pause();
+eyeHead.resume();
+if (!eyeHeadEffects.some((effect) => effect.op === 'pause') || !eyeHeadEffects.some((effect) => effect.op === 'resume')) {
+  throw new Error(`Expected CLJS eye/head tracking pause/resume effects, received ${JSON.stringify(eyeHeadEffects)}`);
+}
+
+eyeHead.resetToNeutral(120);
+eyeHeadState = eyeHead.getState();
+if (eyeHeadState.currentGaze.x !== 0 || eyeHeadState.currentGaze.y !== 0) {
+  throw new Error(`Expected CLJS eye/head tracking resetToNeutral to center gaze, received ${JSON.stringify(eyeHeadState.currentGaze)}`);
+}
+
+eyeHead.stop();
+if (eyeHeadRemoved.length < 10) {
+  throw new Error(`Expected CLJS eye/head tracking stop to remove tracking snippets, saw ${eyeHeadRemoved.length}`);
+}
+
+if (eyeHeadStates.length < 4) {
+  throw new Error(`Expected CLJS eye/head tracking state callbacks, received ${eyeHeadStates.length}`);
+}
+
+eyeHead.dispose();
 
 const prosodicScheduled = [];
 const prosodicRemoved = [];
@@ -696,5 +791,5 @@ if (hairStates.length < 8) {
 hair.dispose();
 
 console.log(
-  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; lipsync states ${lipSyncStates.length}; hair states ${hairStates.length}`,
+  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; eye/head states ${eyeHeadStates.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; lipsync states ${lipSyncStates.length}; hair states ${hairStates.length}`,
 );

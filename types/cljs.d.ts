@@ -294,6 +294,53 @@ export interface GazeAgency {
   dispose(): void;
 }
 
+export interface EyeHeadTrackingConfig extends GazeAgencyConfig {
+  gazeMode?: 'engine' | 'legacy' | 'experimental';
+  eyeTrackingEnabled?: boolean;
+  headTrackingEnabled?: boolean;
+  agencyTransitionDuration?: number;
+  useAnimationAgency?: boolean;
+  returnToNeutralEnabled?: boolean;
+  returnToNeutralDelay?: number;
+  returnToNeutralDuration?: number;
+}
+
+export interface EyeHeadTrackingState {
+  eyeStatus: 'idle' | 'tracking' | 'lagging';
+  headStatus: 'idle' | 'tracking' | 'lagging';
+  currentGaze: Required<GazeTarget>;
+  targetGaze: Required<GazeTarget>;
+  eyeIntensity: number;
+  lastBlinkTime: number | null;
+  headIntensity: number;
+  headFollowTimer: number | null;
+  isSpeaking: boolean;
+  isListening: boolean;
+  returnToNeutralTimer: number | null;
+  lastGazeUpdateTime: number | null;
+  mode: GazeMode;
+  scheduledGazeCount: number;
+  config: GazeAgencyState['config'];
+}
+
+export interface EyeHeadTrackingAgency {
+  configure(config: EyeHeadTrackingConfig): void;
+  updateConfig(config: EyeHeadTrackingConfig): void;
+  start(): void;
+  setMode(mode: GazeMode): void;
+  getMode(): GazeMode;
+  setGazeTarget(target: GazeTarget): boolean;
+  setTarget(target: GazeTarget): boolean;
+  schedule(target: GazeTarget): boolean;
+  resetToNeutral(duration?: number): void;
+  pause(): void;
+  resume(): void;
+  stop(): void;
+  getState(): EyeHeadTrackingState;
+  getSnapshot(): GazeAgencyState;
+  dispose(): void;
+}
+
 export interface ProsodicConfig {
   browPriority?: number;
   headPriority?: number;
@@ -768,9 +815,25 @@ export interface LipSyncWorkerClient {
   dispose(): void;
 }
 
+export interface EyeHeadTrackingWorkerClient {
+  configure(config: EyeHeadTrackingConfig): void;
+  updateConfig(config: EyeHeadTrackingConfig): void;
+  start(): void;
+  setMode(mode: GazeMode): void;
+  setGazeTarget(target: GazeTarget): void;
+  setTarget(target: GazeTarget): void;
+  schedule(target: GazeTarget): void;
+  resetToNeutral(duration?: number): void;
+  pause(): void;
+  resume(): void;
+  stop(): void;
+  dispose(): void;
+}
+
 export interface LatticeworkCljsApi {
   createAnimationAgency(config?: Partial<AnimationAgencyState>, host?: WorkerAgencyHost): AnimationAgency;
   createBlinkAgency(config?: BlinkAgencyConfig, host?: WorkerAgencyHost): BlinkAgency;
+  createEyeHeadTrackingAgency(config?: EyeHeadTrackingConfig, host?: WorkerAgencyHost): EyeHeadTrackingAgency;
   createGazeAgency(config?: GazeAgencyConfig, host?: WorkerAgencyHost): GazeAgency;
   createHairAgency(config?: HairAgencyConfig, host?: WorkerAgencyHost): HairAgency;
   createLipSyncAgency(config?: LipSyncConfig, host?: WorkerAgencyHost): LipSyncAgency;
@@ -779,6 +842,7 @@ export interface LatticeworkCljsApi {
   createAgencyWorkerClient(worker: Worker, host?: WorkerAgencyHost): WorkerAgencyClient;
   createAnimationWorkerClient(worker: Worker, host?: WorkerAgencyHost): AnimationWorkerClient;
   createBlinkWorkerClient(worker: Worker, host?: WorkerAgencyHost): BlinkWorkerClient;
+  createEyeHeadTrackingWorkerClient(worker: Worker, host?: WorkerAgencyHost): EyeHeadTrackingWorkerClient;
   createGazeWorkerClient(worker: Worker, host?: WorkerAgencyHost): GazeWorkerClient;
   createHairWorkerClient(worker: Worker, host?: WorkerAgencyHost): HairWorkerClient;
   createLipSyncWorkerClient(worker: Worker, host?: WorkerAgencyHost): LipSyncWorkerClient;
@@ -795,6 +859,11 @@ export declare function createBlinkAgency(
   config?: BlinkAgencyConfig,
   host?: WorkerAgencyHost,
 ): BlinkAgency;
+
+export declare function createEyeHeadTrackingAgency(
+  config?: EyeHeadTrackingConfig,
+  host?: WorkerAgencyHost,
+): EyeHeadTrackingAgency;
 
 export declare function createGazeAgency(
   config?: GazeAgencyConfig,
@@ -835,6 +904,11 @@ export declare function createBlinkWorkerClient(
   worker: Worker,
   host?: WorkerAgencyHost,
 ): BlinkWorkerClient;
+
+export declare function createEyeHeadTrackingWorkerClient(
+  worker: Worker,
+  host?: WorkerAgencyHost,
+): EyeHeadTrackingWorkerClient;
 
 export declare function createGazeWorkerClient(
   worker: Worker,

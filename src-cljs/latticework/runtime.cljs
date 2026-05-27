@@ -1,6 +1,7 @@
 (ns latticework.runtime
   (:require [latticework.animation :as animation]
             [latticework.blink :as blink]
+            [latticework.eye-head-tracking :as eye-head-tracking]
             [latticework.gaze :as gaze]
             [latticework.hair :as hair]
             [latticework.lipsync :as lipsync]
@@ -282,6 +283,53 @@
                         (protocol/data->js (gaze/snapshot state)))
             :dispose (fn []
                        (emit! (gaze/stop! state))
+                       (reset! disposed true))}))))
+
+(defn create-in-process-eye-head-tracking-agency
+  ([config] (create-in-process-eye-head-tracking-agency config nil))
+  ([config host]
+   (let [state (eye-head-tracking/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)]
+     (letfn [(emit! [outputs]
+               (when-not @disposed
+                 (apply-outputs! host outputs))
+               outputs)
+             (schedule! [target]
+               (let [outputs (emit! (eye-head-tracking/schedule-target! state (protocol/js->data target)))]
+                 (boolean (some #(= "scheduleSnippet" (:type %)) outputs))))]
+       (emit! [(protocol/emit-state eye-head-tracking/agency-name (eye-head-tracking/eye-head-state state))])
+       #js {:configure (fn [next-config]
+                         (emit! (eye-head-tracking/configure! state (protocol/js->data next-config))))
+            :updateConfig (fn [next-config]
+                            (emit! (eye-head-tracking/configure! state (protocol/js->data next-config))))
+            :start (fn []
+                     (emit! (eye-head-tracking/start! state)))
+            :setMode (fn [mode]
+                       (emit! (eye-head-tracking/set-mode! state mode)))
+            :getMode (fn []
+                       (:mode (eye-head-tracking/snapshot state)))
+            :setGazeTarget (fn [target]
+                             (schedule! target))
+            :setTarget (fn [target]
+                         (schedule! target))
+            :schedule (fn [target]
+                        (schedule! target))
+            :resetToNeutral (fn
+                              ([] (emit! (eye-head-tracking/reset-to-neutral! state nil)))
+                              ([duration] (emit! (eye-head-tracking/reset-to-neutral! state duration))))
+            :pause (fn []
+                     (emit! (eye-head-tracking/pause! state)))
+            :resume (fn []
+                      (emit! (eye-head-tracking/resume! state)))
+            :stop (fn []
+                    (emit! (eye-head-tracking/stop! state)))
+            :getState (fn []
+                        (protocol/data->js (eye-head-tracking/eye-head-state state)))
+            :getSnapshot (fn []
+                           (protocol/data->js (eye-head-tracking/snapshot state)))
+            :dispose (fn []
+                       (emit! (eye-head-tracking/stop! state))
                        (reset! disposed true))}))))
 
 (defn create-in-process-animation-agency
@@ -837,6 +885,34 @@
                               (.post client #js {:agency "hair" :type "setPhysicsEnabled" :enabled enabled}))
          :updatePhysicsConfig (fn [config]
                                 (.post client #js {:agency "hair" :type "updatePhysicsConfig" :config config}))
+         :dispose (fn []
+                    (.dispose client))}))
+
+(defn create-eye-head-tracking-worker-client [worker host]
+  (let [client (create-worker-client worker host)]
+    #js {:configure (fn [config]
+                      (.configure client eye-head-tracking/agency-name config))
+         :updateConfig (fn [config]
+                         (.configure client eye-head-tracking/agency-name config))
+         :start (fn []
+                  (.post client #js {:agency "eyeHeadTracking" :type "start"}))
+         :setMode (fn [mode]
+                    (.post client #js {:agency "eyeHeadTracking" :type "setMode" :mode mode}))
+         :setGazeTarget (fn [target]
+                          (.post client #js {:agency "eyeHeadTracking" :type "setGazeTarget" :target target}))
+         :setTarget (fn [target]
+                      (.post client #js {:agency "eyeHeadTracking" :type "setTarget" :target target}))
+         :schedule (fn [target]
+                     (.post client #js {:agency "eyeHeadTracking" :type "schedule" :target target}))
+         :resetToNeutral (fn
+                           ([] (.post client #js {:agency "eyeHeadTracking" :type "resetToNeutral"}))
+                           ([duration] (.post client #js {:agency "eyeHeadTracking" :type "resetToNeutral" :duration duration})))
+         :pause (fn []
+                  (.post client #js {:agency "eyeHeadTracking" :type "pause"}))
+         :resume (fn []
+                   (.post client #js {:agency "eyeHeadTracking" :type "resume"}))
+         :stop (fn []
+                 (.post client #js {:agency "eyeHeadTracking" :type "stop"}))
          :dispose (fn []
                     (.dispose client))}))
 
