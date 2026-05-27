@@ -1,7 +1,7 @@
 {
-  "name": "@lovelace_lol/latticework",
-  "version": "0.0.2",
-  "description": "Standalone character runtime agencies extracted from LoomLarge",
+  "name": "@lovelace_lol/polyester",
+  "version": "0.0.0",
+  "description": "ClojureScript worker-backed character runtime agencies for Character Loom",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -78,12 +78,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/meekmachine/Latticework.git"
+    "url": "git+https://github.com/meekmachine/Polyester.git"
   },
   "bugs": {
-    "url": "https://github.com/meekmachine/Latticework/issues"
+    "url": "https://github.com/meekmachine/Polyester/issues"
   },
-  "homepage": "https://github.com/meekmachine/Latticework#readme",
+  "homepage": "https://github.com/meekmachine/Polyester#readme",
   "author": "Jonathan",
   "license": "MIT",
   "packageManager": "npm@10.9.2"

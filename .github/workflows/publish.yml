@@ -1,4 +1,4 @@
-name: Publish to NPM
+name: Publish Polyester to NPM
 
 on:
   push:
@@ -84,6 +84,9 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Run CLJS smoke test
+        run: npm run test:cljs
 
       - name: Check if version already exists on NPM
         id: existing

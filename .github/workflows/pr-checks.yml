@@ -31,6 +31,8 @@ jobs:
             command: npm run typecheck
           - name: Test
             command: npm test
+          - name: CLJS Smoke
+            command: npm run test:cljs
     name: ${{ matrix.check.name }}
     steps:
       - name: Checkout

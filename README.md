@@ -1,173 +1,100 @@
-# Latticework
+# Polyester
 
-`@lovelace_lol/latticework` is the standalone character-runtime package used by
-Character Loom for speech, conversation, gaze, blinking, hair, lip-sync, and animation
-coordination.
+`@lovelace_lol/polyester` is the ClojureScript worker-backed character-runtime
+package for Character Loom agency experiments.
 
-Latticework owns character-behavior agencies and runtime helpers. LoomLarge owns
-the application shell, UI, backend routes, character asset loading, and product
-flows that assemble those agencies.
+Polyester starts as a fork of Latticework's CLJS staging work. Its purpose is to
+let LoomLarge A/B test the CLJS runtime separately from the existing
+`@lovelace_lol/latticework` TypeScript package while preserving compatible agency
+contracts where practical.
 
-## Current Status
+## Status
 
-Latticework has been externalized from LoomLarge and is published to npm.
-
-- Package: `@lovelace_lol/latticework`
-- Repo: `meekmachine/Latticework`
-- Current LoomLarge consumption: `@lovelace_lol/latticework@^0.0.5`
-- LoomLarge no longer contains `frontend/src/latticework`
-- LoomLarge validates linked Latticework PRs before publish when needed
-
-The current package is a bridge extraction that preserves the working runtime
-surface while the internals are cleaned up. The long-term architecture is still
-to move toward clearer `Effect` service composition and `Most.js` stream
-contracts without breaking LoomLarge consumers.
+- Package: `@lovelace_lol/polyester`
+- Repo: `meekmachine/Polyester`
+- Source fork: `meekmachine/Latticework`
+- Initial scope: CLJS npm exports and CLJS worker exports from the Latticework
+  CLJS staging branch
 
 ## Install
 
 ```bash
-npm install @lovelace_lol/latticework
+npm install @lovelace_lol/polyester
 ```
 
-`three` is an optional peer dependency. Install it in consumers that use runtime
-surfaces backed by Three.js or animation-engine integration.
+`three` is an optional peer dependency. Install it in consumers that use
+main-thread animation or runtime surfaces backed by Three.js.
 
 ```bash
 npm install three
 ```
 
-## Package Boundary
+## Runtime Exports
 
-Latticework should contain reusable character-runtime behavior:
-
-- animation services, snippet state, bundled snippet preloading, and baked clip
-  runtime helpers
-- TTS and transcription services
-- conversation orchestration for local browser speech flows
-- vocal/lip-sync timeline helpers, including Azure/SAPI viseme normalization
-- gaze and eye/head tracking services
-- blink, hair, and prosodic agencies
-- runtime configuration helpers that are not LoomLarge-specific UI state
-
-LoomLarge should keep app-specific behavior:
-
-- React screens, panels, and module UI
-- backend API calls and product-specific session orchestration
-- character profile selection and product settings
-- LiveKit room/token ownership and app-level connection UX
-- smoke tests and previews for the assembled LoomLarge experience
-
-## Public Runtime Areas
-
-The package currently exposes a single root entry point.
+The CLJS npm bundle is exposed through `./cljs`.
 
 ```ts
 import {
-  createAnimationService,
-  createConversationService,
-  createTTSService,
-  createTranscriptionService,
-  createVocalService,
-  createEyeHeadTrackingService,
-  azureVisemesToTimeline,
-} from '@lovelace_lol/latticework';
+  createAnimationAgency,
+  createBlinkAgency,
+  createEyeHeadTrackingAgency,
+  createGazeAgency,
+  createHairAgency,
+  createLipSyncAgency,
+  createProsodicAgency,
+  createVocalAgency,
+} from '@lovelace_lol/polyester/cljs';
 ```
 
-| Area | Key exports | Purpose |
-| --- | --- | --- |
-| Animation | `createAnimationService`, snippet observables, snippet preload helpers | Schedules snippets, tracks playback state, exposes UI/runtime streams |
-| TTS | `createTTSService`, TTS timeline helpers, playback-reference types | Speaks text, emits timing events, coordinates vocal animation when an animation agency is provided |
-| Transcription | `createTranscriptionService` | Browser speech recognition, transcript callbacks, interruption/reference-audio hooks |
-| Conversation | `createConversationService`, `ConversationFlow` | Coordinates TTS, transcription, turn state, interruption handling, gaze/prosody handoff |
-| Vocal / lip-sync | `createVocalService`, `azureVisemesToTimeline`, `VisemeMapper`, `PhonemeExtractor` | Converts text/provider visemes into animation timelines and snippets |
-| Gaze / eye-head | `createEyeHeadTrackingService`, gaze config/types | Drives attention, gaze targets, listening/speaking poses, blink hooks |
-| Blink | `createBlinkService`, `BlinkService` | Autonomous and triggered blinking |
-| Hair | `HairService`, hair physics config/types | Hair runtime state and UI-facing configuration |
-| Prosody | source modules, not yet a stable root export | Speech-driven expression and gesture coordination |
-
-## Basic Usage
-
-### TTS
+The CLJS worker bundle is exposed through `./cljs-worker`.
 
 ```ts
-import { createTTSService } from '@lovelace_lol/latticework';
+const worker = new Worker(
+  new URL('@lovelace_lol/polyester/cljs-worker', import.meta.url),
+  { type: 'module' },
+);
+```
 
-const tts = createTTSService(
-  {
-    engine: 'webSpeech',
-    rate: 1,
-    pitch: 1,
-    volume: 1,
-  },
-  {
-    onStart: () => console.log('speaking'),
-    onEnd: () => console.log('done'),
-    onBoundary: ({ word }) => console.log('word', word),
+The current root export still mirrors the inherited Latticework TypeScript
+surface while the split is being validated. The long-term direction is for
+Polyester to become the CLJS-first agency package and for Latticework to remain
+the stable TypeScript package until the migration is complete.
+
+## Current CLJS Agency Coverage
+
+- Animation boundary
+- Blink
+- Gaze
+- Eye/head tracking facade
+- Hair
+- Lipsync
+- Prosodic speech gestures
+- Vocal timeline planning
+
+Remaining transition work is tracked from the Latticework umbrella issue:
+TTS, transcription, conversation orchestration, and an EmotionExpression agency
+scaffold.
+
+## A/B Testing Strategy
+
+Polyester is intended to be tested from LoomLarge without committing temporary
+dependency churn.
+
+Supported paths:
+
+- install a Polyester PR SHA in CI/previews
+- install a published `@lovelace_lol/polyester` version
+- use npm aliasing if LoomLarge needs to test Polyester behind the existing
+  `@lovelace_lol/latticework` dependency name
+
+Example npm alias:
+
+```json
+{
+  "dependencies": {
+    "@lovelace_lol/latticework": "npm:@lovelace_lol/polyester@latest"
   }
-);
-
-await tts.speak('Hello from Latticework.');
-```
-
-### Conversation Service And ConversationFlow
-
-`ConversationService` owns the mechanics: TTS, transcription, state,
-interruptions, gaze/prosody coordination, and cleanup.
-
-`ConversationFlow` is the caller-provided content policy. It is a generator that
-yields agent utterances and receives final user transcripts through `.next()`.
-
-```ts
-import {
-  createConversationService,
-  createTranscriptionService,
-  createTTSService,
-  type ConversationFlow,
-} from '@lovelace_lol/latticework';
-
-const tts = createTTSService({ engine: 'webSpeech' });
-const transcription = createTranscriptionService({ lang: 'en-US' });
-const conversation = createConversationService(tts, transcription);
-
-function* simpleFlow(): ConversationFlow {
-  const answer = yield 'What should we work on today?';
-  yield `I heard: ${answer}`;
 }
-
-conversation.start(simpleFlow);
-```
-
-The generator API is intentionally documented because it is easy to confuse with
-the service itself. Follow-up API cleanup is tracked in issue #8.
-
-### Azure Visemes And Vocal Runtime
-
-```ts
-import {
-  azureVisemesToTimeline,
-  createVocalService,
-} from '@lovelace_lol/latticework';
-
-const vocal = createVocalService({
-  animationAgency: {
-    schedule: (snippet) => animationManager.schedule(snippet),
-    remove: (name) => animationManager.remove(name),
-    seek: (name, offsetSec) => animationManager.seek?.(name, offsetSec),
-  },
-});
-
-const visemes = azureVisemesToTimeline(
-  [{ viseme_id: 2, audio_offset: 0.12 }],
-  1200,
-  { visualLeadMs: 35 }
-);
-
-vocal.startTimeline({
-  source: 'azure',
-  text: 'hello',
-  visemes,
-  durationSec: 1.2,
-});
 ```
 
 ## Development
@@ -177,15 +104,19 @@ npm ci
 npm run build
 npm run typecheck
 npm test
+npm run test:cljs
 ```
 
-The build emits ESM, CJS, and type declarations through `tsup`. The build also
-copies bundled animation snippets into `dist` so consumers can preload them from
-the package.
+The build emits:
+
+- TypeScript ESM/CJS bundles through `tsup`
+- CLJS npm ESM bundle through `shadow-cljs`
+- CLJS browser worker bundle through `shadow-cljs`
+- declaration files for root and CLJS imports
 
 ## Release Flow
 
-Publishing mirrors the Loom3-style tag/release flow. The checked-in
+Publishing mirrors the Latticework tag/release flow. The checked-in
 `package.json` version is a baseline only; the publish workflow resolves the
 actual release version from an existing `vX.Y.Z` tag or from the latest npm
 version, then bumps the patch version in the CI workspace before publishing.
@@ -193,61 +124,23 @@ version, then bumps the patch version in the CI workspace before publishing.
 1. Open a PR against `main`.
 2. PR checks run build, typecheck, and tests.
 3. Merge to `main`.
-4. The `Publish to NPM` workflow determines the next patch version with
-   `scripts/ci/determine-release-version.mjs`, creates or reuses a `vX.Y.Z`
-   tag, builds, tests, and publishes if that npm version does not already
-   exist.
+4. The `Publish Polyester to NPM` workflow determines the next patch version,
+   creates or reuses a release tag, builds, tests, and publishes if that npm
+   version does not already exist.
 5. Verify the published package.
 
 ```bash
-npm view @lovelace_lol/latticework version gitHead --json
+npm view @lovelace_lol/polyester version gitHead --json
 ```
 
-The workflow currently expects the GitHub `npm` environment to provide:
+The workflow expects the GitHub `npm` environment to provide:
 
 - `NPM_KEY` for npm authentication
 - `PUBLISH_PUSH_TOKEN` for pushing release tags
 
-Moving to npm trusted publishing and rotating/removing the long-lived token is
-tracked in issue #7.
+## Notes
 
-## LoomLarge Linked-PR Workflow
-
-Use linked PR validation when LoomLarge needs to test unreleased Latticework
-changes before an npm publish.
-
-Typical sequence:
-
-1. Open a Latticework PR with the package change.
-2. In the LoomLarge PR body or comments, add a dependency link such as:
-
-   ```text
-   Depends-on: meekmachine/Latticework#123
-   ```
-
-3. LoomLarge CI resolves that Latticework PR to a git dependency for the current
-   validation run.
-4. After the Latticework PR merges and publishes, update the LoomLarge PR to use
-   the published npm semver.
-5. Do not merge LoomLarge `main` with a temporary git SHA dependency.
-
-Release and linked-PR documentation is tracked in issue #6.
-
-## Roadmap
-
-Near-term work:
-
-- document the release and linked-PR workflow in more detail (#6)
-- move publishing to npm trusted publishing and rotate token secrets (#7)
-- clarify or simplify `ConversationService` versus `ConversationFlow` (#8)
-- keep LoomLarge consumer smoke coverage current
-
-Longer-term work:
-
-- reduce bridge-era runtime coupling
-- make agency ownership and cancellation rules explicit
-- replace legacy runtime internals behind stable public contracts
-- move toward `Effect` for service composition and lifecycle management
-- use `Most.js` streams for timed events, fan-out, and observable-style inputs
-
-The package boundary should remain stable while internals improve.
+Internal namespaces still use the inherited Latticework naming in this initial
+fork. That keeps the first repository split small and verifiable. A later cleanup
+can rename internals once package publishing and LoomLarge A/B testing are
+working.
