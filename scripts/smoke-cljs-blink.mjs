@@ -4,6 +4,7 @@ import {
   createGazeAgency,
   createHairAgency,
   createProsodicAgency,
+  createVocalAgency,
 } from '../dist/cljs/index.js';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -381,6 +382,120 @@ if (prosodicStates.length < 6) {
 
 prosodic.dispose();
 
+const vocalScheduled = [];
+const vocalRemoved = [];
+const vocalEffects = [];
+const vocalEvents = [];
+const vocalCleanupPlans = [];
+const vocalStates = [];
+
+const vocal = createVocalAgency(
+  { intensity: 1.2, jawScale: 1.1 },
+  {
+    scheduleSnippet(snippet, opts) {
+      vocalScheduled.push({ snippet, opts });
+      return snippet.name;
+    },
+    removeSnippet(name) {
+      vocalRemoved.push(name);
+    },
+    seekSnippet(name, offsetSec) {
+      vocalEffects.push({ op: 'seek', name, offsetSec });
+    },
+    pauseSnippet(name) {
+      vocalEffects.push({ op: 'pause', name });
+    },
+    resumeSnippet(name) {
+      vocalEffects.push({ op: 'resume', name });
+    },
+    onVocalEvent(event) {
+      vocalEvents.push(event);
+    },
+    onVocalCleanupPlan(plan) {
+      vocalCleanupPlans.push(plan);
+    },
+    onState(state) {
+      if (state?.config?.priority === 50 && Array.isArray(state?.activeSnippets)) {
+        vocalStates.push(state);
+      }
+    },
+  },
+);
+
+const vocalName = vocal.startSentence('hello world');
+if (!vocalName?.startsWith('vocal_hello_world_')) {
+  throw new Error(`Expected vocal sentence name, received ${vocalName}`);
+}
+
+if (vocalScheduled.length !== 1) {
+  throw new Error(`Expected vocal sentence to schedule one snippet, received ${vocalScheduled.length}`);
+}
+
+const vocalSnippet = vocalScheduled[0].snippet;
+if (vocalSnippet.snippetCategory !== 'combined' || vocalSnippet.autoVisemeJaw !== false) {
+  throw new Error(`Expected combined vocal snippet with explicit jaw, received ${JSON.stringify(vocalSnippet)}`);
+}
+
+if (!vocalSnippet.curves?.['26']?.length) {
+  throw new Error(`Expected CLJS vocal planner to emit AU26 jaw curve, received ${JSON.stringify(vocalSnippet.curves)}`);
+}
+
+if (vocalScheduled[0].opts?.autoPlay !== true) {
+  throw new Error('Expected CLJS vocal snippet to request autoPlay');
+}
+
+let vocalState = vocal.getState();
+if (vocalState.isSpeaking !== true || vocalState.snippetName !== vocalName) {
+  throw new Error(`Expected active vocal state, received ${JSON.stringify(vocalState)}`);
+}
+
+vocal.onWordBoundary('hello', 0, 0.25);
+if (!vocalEffects.some((effect) => effect.op === 'seek' && effect.name === vocalName && effect.offsetSec === 0.25)) {
+  throw new Error(`Expected vocal drift correction seek, received ${JSON.stringify(vocalEffects)}`);
+}
+
+vocal.pauseSentence();
+vocal.resumeSentence();
+if (!vocalEffects.some((effect) => effect.op === 'pause') || !vocalEffects.some((effect) => effect.op === 'resume')) {
+  throw new Error(`Expected vocal pause and resume host effects, received ${JSON.stringify(vocalEffects)}`);
+}
+
+const azureName = vocal.processVisemeEvents(
+  [{ visemeId: 1, offsetMs: 0, durationMs: 120 }],
+  'azure_vocal_test',
+);
+if (azureName !== 'azure_vocal_test') {
+  throw new Error(`Expected explicit Azure vocal name, received ${azureName}`);
+}
+
+if (vocalScheduled.length !== 2 || vocalRemoved[0] !== vocalName) {
+  throw new Error(`Expected starting Azure vocal to replace previous sentence, scheduled=${vocalScheduled.length}, removed=${vocalRemoved.join(', ')}`);
+}
+
+vocal.stopSentence();
+if (!vocalRemoved.includes('azure_vocal_test')) {
+  throw new Error(`Expected vocal stopSentence to remove active Azure snippet, removed ${vocalRemoved.join(', ')}`);
+}
+
+vocalState = vocal.getState();
+if (vocalState.isSpeaking !== false || vocalState.snippetName !== null) {
+  throw new Error(`Expected vocal state to stop cleanly, received ${JSON.stringify(vocalState)}`);
+}
+
+if (!vocalEvents.some((event) => event.type === 'WORD_BOUNDARY' && event.seeked === true)) {
+  throw new Error(`Expected vocal WORD_BOUNDARY event with drift seek, received ${JSON.stringify(vocalEvents)}`);
+}
+
+if (vocalCleanupPlans.length < 2) {
+  throw new Error(`Expected vocal cleanup plans for scheduled snippets, received ${JSON.stringify(vocalCleanupPlans)}`);
+}
+
+if (vocalStates.length < 5) {
+  throw new Error(`Expected vocal state callbacks, received ${vocalStates.length}`);
+}
+
+vocal.dispose();
+
 const hairObjectStates = [];
 const hairPhysicsUpdates = [];
 const hairStates = [];
@@ -476,5 +591,5 @@ if (hairStates.length < 8) {
 hair.dispose();
 
 console.log(
-  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; prosodic states ${prosodicStates.length}; hair states ${hairStates.length}`,
+  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; hair states ${hairStates.length}`,
 );

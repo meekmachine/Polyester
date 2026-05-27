@@ -4,7 +4,8 @@
             [latticework.gaze :as gaze]
             [latticework.hair :as hair]
             [latticework.prosodic :as prosodic]
-            [latticework.protocol :as protocol]))
+            [latticework.protocol :as protocol]
+            [latticework.vocal :as vocal]))
 
 (defn- fn-prop [value key]
   (let [candidate (and value (aget value key))]
@@ -135,6 +136,14 @@
              (when (:removeOnComplete step)
                (call-first! host ["removeSnippet" "remove"] (:name step))))
            (:delayMs step)))))
+
+    "vocalEvent"
+    (when-let [on-vocal-event (fn-prop host "onVocalEvent")]
+      (on-vocal-event (protocol/data->js (:event output))))
+
+    "vocalCleanupPlan"
+    (when-let [on-vocal-cleanup-plan (fn-prop host "onVocalCleanupPlan")]
+      (on-vocal-cleanup-plan (protocol/data->js (:plan output))))
 
     "applyHairState"
     (if-let [apply-hair-state (fn-prop host "applyHairState")]
@@ -352,6 +361,86 @@
                        (emit! (prosodic/stop! state))
                        (reset! disposed true))}))))
 
+(defn create-in-process-vocal-agency
+  ([config] (create-in-process-vocal-agency config nil))
+  ([config host]
+   (let [state (vocal/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)
+         cleanup-timers (atom {})]
+     (letfn [(clear-cleanup! [name]
+               (when-let [timer (get @cleanup-timers name)]
+                 (js/clearTimeout timer)
+                 (swap! cleanup-timers dissoc name)))
+             (clear-all-cleanups! []
+               (doseq [timer (vals @cleanup-timers)]
+                 (js/clearTimeout timer))
+               (reset! cleanup-timers {}))
+             (schedule-cleanup! [plan]
+               (let [name (:name plan)]
+                 (when name
+                   (clear-cleanup! name)
+                   (swap! cleanup-timers
+                          assoc
+                          name
+                          (js/setTimeout
+                           (fn []
+                             (clear-cleanup! name)
+                             (when-not @disposed
+                               (emit! (vocal/cleanup! state name))))
+                           (max 0 (:delayMs plan)))))))
+             (sync-timers! [outputs]
+               (doseq [output outputs]
+                 (case (:type output)
+                   "vocalCleanupPlan" (schedule-cleanup! (:plan output))
+                   "removeSnippet" (clear-cleanup! (:name output))
+                   nil)))
+             (emit! [command-result]
+               (let [outputs (:outputs command-result)]
+                 (sync-timers! outputs)
+                 (when-not @disposed
+                   (apply-outputs! host outputs))
+                 command-result))]
+       (apply-outputs! host [(protocol/emit-state vocal/agency-name (vocal/snapshot state))])
+       #js {:updateConfig (fn [config]
+                            (:result (emit! (vocal/update-config! state (protocol/js->data config)))))
+            :startTimeline (fn [timeline]
+                             (:result (emit! (vocal/start-timeline! state (protocol/js->data timeline)))))
+            :startSentence (fn [text]
+                             (:result (emit! (vocal/start-sentence! state text))))
+            :onWordBoundary (fn
+                              ([word] (:result (emit! (vocal/on-word-boundary! state word nil nil))))
+                              ([word word-index] (:result (emit! (vocal/on-word-boundary! state word word-index nil))))
+                              ([word word-index observed-elapsed-sec]
+                               (:result (emit! (vocal/on-word-boundary! state word word-index observed-elapsed-sec)))))
+            :updateWordTimings (fn [word-timings]
+                                 (:result (emit! (vocal/update-word-timings! state (protocol/js->data word-timings)))))
+            :stopSentence (fn []
+                            (:result (emit! (vocal/stop-sentence! state))))
+            :pauseSentence (fn []
+                             (:result (emit! (vocal/pause-sentence! state))))
+            :resumeSentence (fn []
+                              (:result (emit! (vocal/resume-sentence! state))))
+            :speak (fn [text]
+                     (:result (emit! (vocal/start-sentence! state text))))
+            :speakWord (fn [word]
+                         (:result (emit! (vocal/speak-word! state word))))
+            :processWordBoundary (fn [timing]
+                                   (:result (emit! (vocal/process-word-boundary! state (protocol/js->data timing)))))
+            :processVisemeEvents (fn
+                                   ([events] (:result (emit! (vocal/process-viseme-events! state (protocol/js->data events) nil))))
+                                   ([events name] (:result (emit! (vocal/process-viseme-events! state (protocol/js->data events) name)))))
+            :stop (fn []
+                    (:result (emit! (vocal/stop! state))))
+            :getState (fn []
+                        (protocol/data->js (vocal/vocal-state state)))
+            :getSnapshot (fn []
+                           (protocol/data->js (vocal/snapshot state)))
+            :dispose (fn []
+                       (emit! (vocal/stop! state))
+                       (clear-all-cleanups!)
+                       (reset! disposed true))}))))
+
 (defn create-in-process-hair-agency
   ([config] (create-in-process-hair-agency config nil))
   ([config host]
@@ -509,6 +598,75 @@
          :stop (fn []
                  (.post client #js {:agency "prosodic" :type "stop"}))
          :dispose (fn []
+                    (.dispose client))}))
+
+(defn create-vocal-worker-client [worker host]
+  (let [host (or host #js {})
+        cleanup-timers (atom {})
+        client-ref (atom nil)
+        clear-cleanup! (fn [name]
+                         (when-let [timer (get @cleanup-timers name)]
+                           (js/clearTimeout timer)
+                           (swap! cleanup-timers dissoc name)))
+        clear-all-cleanups! (fn []
+                              (doseq [timer (vals @cleanup-timers)]
+                                (js/clearTimeout timer))
+                              (reset! cleanup-timers {}))
+        wrapped-host (js/Object.assign
+                      #js {}
+                      host
+                      #js {:onVocalCleanupPlan
+                           (fn [plan]
+                             (when-let [on-vocal-cleanup-plan (fn-prop host "onVocalCleanupPlan")]
+                               (on-vocal-cleanup-plan plan))
+                             (let [name (aget plan "name")
+                                   delay-ms (or (aget plan "delayMs") 0)]
+                               (when name
+                                 (clear-cleanup! name)
+                                 (swap! cleanup-timers
+                                        assoc
+                                        name
+                                        (js/setTimeout
+                                         (fn []
+                                           (clear-cleanup! name)
+                                           (when-let [client @client-ref]
+                                             (.post ^js client #js {:agency "vocal" :type "cleanup" :name name})))
+                                         (max 0 delay-ms))))))})
+        client (create-worker-client worker wrapped-host)]
+    (reset! client-ref client)
+    #js {:updateConfig (fn [config]
+                         (.post client #js {:agency "vocal" :type "updateConfig" :config config}))
+         :startTimeline (fn [timeline]
+                          (.post client #js {:agency "vocal" :type "startTimeline" :timeline timeline}))
+         :startSentence (fn [text]
+                          (.post client #js {:agency "vocal" :type "startSentence" :text text}))
+         :onWordBoundary (fn
+                           ([word] (.post client #js {:agency "vocal" :type "onWordBoundary" :word word}))
+                           ([word word-index]
+                            (.post client #js {:agency "vocal" :type "onWordBoundary" :word word :wordIndex word-index}))
+                           ([word word-index observed-elapsed-sec]
+                            (.post client #js {:agency "vocal" :type "onWordBoundary" :word word :wordIndex word-index :observedElapsedSec observed-elapsed-sec})))
+         :updateWordTimings (fn [word-timings]
+                              (.post client #js {:agency "vocal" :type "updateWordTimings" :wordTimings word-timings}))
+         :stopSentence (fn []
+                         (.post client #js {:agency "vocal" :type "stopSentence"}))
+         :pauseSentence (fn []
+                          (.post client #js {:agency "vocal" :type "pauseSentence"}))
+         :resumeSentence (fn []
+                           (.post client #js {:agency "vocal" :type "resumeSentence"}))
+         :speak (fn [text]
+                  (.post client #js {:agency "vocal" :type "speak" :text text}))
+         :speakWord (fn [word]
+                      (.post client #js {:agency "vocal" :type "speakWord" :word word}))
+         :processWordBoundary (fn [timing]
+                                (.post client #js {:agency "vocal" :type "processWordBoundary" :timing timing}))
+         :processVisemeEvents (fn
+                                ([events] (.post client #js {:agency "vocal" :type "processVisemeEvents" :events events}))
+                                ([events name] (.post client #js {:agency "vocal" :type "processVisemeEvents" :events events :name name})))
+         :stop (fn []
+                 (.post client #js {:agency "vocal" :type "stop"}))
+         :dispose (fn []
+                    (clear-all-cleanups!)
                     (.dispose client))}))
 
 (defn create-hair-worker-client [worker host]

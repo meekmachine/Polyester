@@ -4,7 +4,8 @@
             [latticework.gaze :as gaze]
             [latticework.hair :as hair]
             [latticework.prosodic :as prosodic]
-            [latticework.protocol :as protocol]))
+            [latticework.protocol :as protocol]
+            [latticework.vocal :as vocal]))
 
 (defonce animation-state (animation/create-state))
 (defonce blink-state (blink/create-state))
@@ -12,6 +13,7 @@
 (defonce gaze-state (gaze/create-state))
 (defonce hair-state (hair/create-state))
 (defonce prosodic-state (prosodic/create-state))
+(defonce vocal-state (vocal/create-state))
 
 (defn- post-output! [output]
   (.postMessage js/self (protocol/data->js output)))
@@ -55,6 +57,7 @@
     "gaze" (gaze/handle-command! gaze-state command)
     "hair" (hair/handle-command! hair-state command)
     "prosodic" (prosodic/handle-command! prosodic-state command)
+    "vocal" (:outputs (vocal/handle-command! vocal-state command))
     [(protocol/emit-error
       (or (:agency command) "unknown")
       (str "Unsupported agency: " (:agency command)))]))
@@ -70,4 +73,5 @@
   (post-output! (protocol/emit-state gaze/agency-name (gaze/snapshot gaze-state)))
   (post-output! (protocol/emit-state hair/agency-name (hair/snapshot hair-state)))
   (post-output! (protocol/emit-state prosodic/agency-name (prosodic/snapshot prosodic-state)))
+  (post-output! (protocol/emit-state vocal/agency-name (vocal/snapshot vocal-state)))
   (sync-blink-auto!))

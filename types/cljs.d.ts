@@ -26,6 +26,8 @@ export interface WorkerAgencyHost {
   onAnimationEvent?: (event: AnimationEvent) => void;
   onProsodicEvent?: (event: ProsodicEvent) => void;
   onProsodicFadePlan?: (plan: ProsodicFadePlan) => void;
+  onVocalEvent?: (event: VocalEvent) => void;
+  onVocalCleanupPlan?: (plan: VocalCleanupPlan) => void;
   applyHairState?: (
     state: HairState,
     objects: HairObjectRef[],
@@ -361,6 +363,113 @@ export interface ProsodicAgency {
   dispose(): void;
 }
 
+export type VocalSource = 'text' | 'azure' | 'livekit' | 'webSpeech';
+
+export interface VocalConfig {
+  intensity?: number;
+  speechRate?: number;
+  jawScale?: number;
+  rampMs?: number;
+  holdMs?: number;
+  priority?: number;
+}
+
+export interface VocalVisemeEvent {
+  visemeId: number;
+  offsetMs: number;
+  durationMs: number;
+}
+
+export interface VocalWordTiming {
+  word: string;
+  startSec: number;
+  endSec: number;
+}
+
+export interface VocalTimeline {
+  name?: string;
+  text?: string;
+  visemes: VocalVisemeEvent[];
+  wordTimings?: VocalWordTiming[];
+  durationSec?: number;
+  source?: VocalSource;
+}
+
+export interface VocalSnippet {
+  name: string;
+  snippetCategory: 'combined';
+  snippetPriority: number;
+  snippetPlaybackRate: number;
+  snippetIntensityScale: number;
+  snippetJawScale?: number;
+  autoVisemeJaw?: boolean;
+  loop: boolean;
+  maxTime: number;
+  curves: Record<string, AnimationCurvePoint[]>;
+}
+
+export interface VocalState {
+  isSpeaking: boolean;
+  currentWord: string | null;
+  currentViseme: number | null;
+  snippetName: string | null;
+  startTime: number | null;
+}
+
+export interface VocalSentenceSnapshot {
+  name: string;
+  text: string;
+  startTime: number;
+  maxTime: number;
+  wordIndex: number;
+  wordTimings: VocalWordTiming[];
+}
+
+export interface VocalSnapshot extends VocalState {
+  currentSentence: VocalSentenceSnapshot | null;
+  activeSnippets: string[];
+  config: Required<VocalConfig>;
+  eventCount: number;
+  lastUpdatedTime: number | null;
+}
+
+export interface VocalEvent {
+  type: string;
+  timestamp: number;
+  snippetName?: string;
+  source?: VocalSource;
+  word?: string;
+  wordIndex?: number;
+  elapsedSec?: number;
+  driftSec?: number;
+  seeked?: boolean;
+  [key: string]: unknown;
+}
+
+export interface VocalCleanupPlan {
+  name: string;
+  delayMs: number;
+}
+
+export interface VocalAgency {
+  updateConfig(config: VocalConfig): boolean;
+  startTimeline(timeline: VocalTimeline): string | null;
+  startSentence(text: string): string | null;
+  onWordBoundary(word: string, wordIndex?: number, observedElapsedSec?: number): boolean;
+  updateWordTimings(wordTimings: VocalWordTiming[]): boolean;
+  stopSentence(): boolean;
+  pauseSentence(): boolean;
+  resumeSentence(): boolean;
+  speak(text: string): string | null;
+  speakWord(word: string): string | null | boolean;
+  processWordBoundary(timing: { word: string; startMs: number; durationMs?: number }): string | null | boolean;
+  processVisemeEvents(events: VocalVisemeEvent[], name?: string): string | null;
+  stop(): boolean;
+  getState(): VocalState;
+  getSnapshot(): VocalSnapshot;
+  dispose(): void;
+}
+
 export interface HairColor {
   name: string;
   baseColor: string;
@@ -573,18 +682,37 @@ export interface ProsodicWorkerClient {
   dispose(): void;
 }
 
+export interface VocalWorkerClient {
+  updateConfig(config: VocalConfig): void;
+  startTimeline(timeline: VocalTimeline): void;
+  startSentence(text: string): void;
+  onWordBoundary(word: string, wordIndex?: number, observedElapsedSec?: number): void;
+  updateWordTimings(wordTimings: VocalWordTiming[]): void;
+  stopSentence(): void;
+  pauseSentence(): void;
+  resumeSentence(): void;
+  speak(text: string): void;
+  speakWord(word: string): void;
+  processWordBoundary(timing: { word: string; startMs: number; durationMs?: number }): void;
+  processVisemeEvents(events: VocalVisemeEvent[], name?: string): void;
+  stop(): void;
+  dispose(): void;
+}
+
 export interface LatticeworkCljsApi {
   createAnimationAgency(config?: Partial<AnimationAgencyState>, host?: WorkerAgencyHost): AnimationAgency;
   createBlinkAgency(config?: BlinkAgencyConfig, host?: WorkerAgencyHost): BlinkAgency;
   createGazeAgency(config?: GazeAgencyConfig, host?: WorkerAgencyHost): GazeAgency;
   createHairAgency(config?: HairAgencyConfig, host?: WorkerAgencyHost): HairAgency;
   createProsodicAgency(config?: ProsodicConfig, host?: WorkerAgencyHost): ProsodicAgency;
+  createVocalAgency(config?: VocalConfig, host?: WorkerAgencyHost): VocalAgency;
   createAgencyWorkerClient(worker: Worker, host?: WorkerAgencyHost): WorkerAgencyClient;
   createAnimationWorkerClient(worker: Worker, host?: WorkerAgencyHost): AnimationWorkerClient;
   createBlinkWorkerClient(worker: Worker, host?: WorkerAgencyHost): BlinkWorkerClient;
   createGazeWorkerClient(worker: Worker, host?: WorkerAgencyHost): GazeWorkerClient;
   createHairWorkerClient(worker: Worker, host?: WorkerAgencyHost): HairWorkerClient;
   createProsodicWorkerClient(worker: Worker, host?: WorkerAgencyHost): ProsodicWorkerClient;
+  createVocalWorkerClient(worker: Worker, host?: WorkerAgencyHost): VocalWorkerClient;
 }
 
 export declare function createAnimationAgency(
@@ -611,6 +739,11 @@ export declare function createProsodicAgency(
   config?: ProsodicConfig,
   host?: WorkerAgencyHost,
 ): ProsodicAgency;
+
+export declare function createVocalAgency(
+  config?: VocalConfig,
+  host?: WorkerAgencyHost,
+): VocalAgency;
 
 export declare function createAgencyWorkerClient(
   worker: Worker,
@@ -641,5 +774,10 @@ export declare function createProsodicWorkerClient(
   worker: Worker,
   host?: WorkerAgencyHost,
 ): ProsodicWorkerClient;
+
+export declare function createVocalWorkerClient(
+  worker: Worker,
+  host?: WorkerAgencyHost,
+): VocalWorkerClient;
 
 export declare function installLatticework(target?: typeof globalThis): LatticeworkCljsApi;
