@@ -44,6 +44,13 @@ if (!Array.isArray(curve) || curve.length !== 7) {
   throw new Error(`Expected AU 43 curve with seven points, received ${curve?.length ?? 'none'}`);
 }
 
+if (snippet.snippetCategory !== 'blink' ||
+    snippet.snippetPriority !== 100 ||
+    snippet.snippetPlaybackRate !== 1.0 ||
+    snippet.snippetIntensityScale !== 1.0) {
+  throw new Error(`Expected blink snippet metadata to stay stable, received ${JSON.stringify(snippet)}`);
+}
+
 if (opts?.autoPlay !== true) {
   throw new Error('Expected blink snippet to request autoPlay');
 }
@@ -52,10 +59,20 @@ if (state.scheduledBlinkCount !== 1) {
   throw new Error(`Expected scheduledBlinkCount to be 1, received ${state.scheduledBlinkCount}`);
 }
 
+agency.setRandomness(1);
+agency.triggerBlink({ intensity: 0.4, duration: 0.2, randomness: 0 });
+
+const overrideCurve = scheduled[1].snippet.curves?.['43'];
+if (scheduled[1].snippet.maxTime !== 0.2 || overrideCurve?.[2]?.intensity !== 0.4) {
+  throw new Error(`Expected per-trigger blink overrides to ignore configured randomness, received ${JSON.stringify(scheduled[1])}`);
+}
+
+const manualScheduledCount = scheduled.length;
+agency.setRandomness(0);
 agency.enable();
 await wait(1100);
 
-if (scheduled.length < 2) {
+if (scheduled.length <= manualScheduledCount) {
   throw new Error(`Expected automatic blink after enable, received ${scheduled.length} scheduled snippets`);
 }
 
