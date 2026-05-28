@@ -37,6 +37,7 @@ export interface WorkerAgencyHost {
     emotionEvents: TTSEmojiTimelineEvent[],
   ) => void;
   onTranscriptionEvent?: (event: TranscriptionEvent) => void;
+  onTranscriptionRecommendation?: (recommendation: TranscriptionRecommendation) => void;
   onConversationEvent?: (event: ConversationEvent) => void;
   onAgencyCommand?: (target: string, command: Record<string, unknown>) => void;
   onTTSCommand?: (command: Record<string, unknown>) => void;
@@ -728,6 +729,9 @@ export interface TranscriptionConfig {
   referenceRatio?: number;
   releaseThreshold?: number;
   releaseMs?: number;
+  autoRestart?: boolean;
+  restartDelayMs?: number;
+  maxRestartCount?: number;
 }
 
 export interface TranscriptionAgencyState {
@@ -737,6 +741,10 @@ export interface TranscriptionAgencyState {
   finalTranscript: string;
   isInterrupted: boolean;
   interruptionSource: string | null;
+  error: string | null;
+  restartCount: number;
+  pendingRestart: TranscriptionRecommendation | null;
+  lastRecommendation: TranscriptionRecommendation | null;
 }
 
 export interface TranscriptionSnapshot extends TranscriptionAgencyState {
@@ -760,6 +768,19 @@ export interface TranscriptionEvent {
   userLevel?: number;
   referenceLevel?: number;
   message?: string;
+  [key: string]: unknown;
+}
+
+export interface TranscriptionRecommendation {
+  type: 'RESTART' | 'STOP' | 'CLEANUP' | string;
+  reason: string;
+  delayMs?: number;
+  restartCount?: number;
+  maxRestartCount?: number;
+  clearInterimTranscript?: boolean;
+  clearInterruption?: boolean;
+  cancelRestart?: boolean;
+  releaseBrowserResources?: boolean;
   [key: string]: unknown;
 }
 

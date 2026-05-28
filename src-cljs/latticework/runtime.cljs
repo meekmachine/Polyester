@@ -173,6 +173,10 @@
     (when-let [on-transcription-event (fn-prop host "onTranscriptionEvent")]
       (on-transcription-event (protocol/data->js (:event output))))
 
+    "transcriptionRecommendation"
+    (when-let [on-transcription-recommendation (fn-prop host "onTranscriptionRecommendation")]
+      (on-transcription-recommendation (protocol/data->js (:recommendation output))))
+
     "conversationEvent"
     (when-let [on-conversation-event (fn-prop host "onConversationEvent")]
       (on-conversation-event (protocol/data->js (:event output))))

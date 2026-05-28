@@ -810,6 +810,7 @@ tts.dispose();
 
 const transcriptionEvents = [];
 const transcriptionCommands = [];
+const transcriptionRecommendations = [];
 const transcriptionStates = [];
 
 const transcription = createTranscriptionAgency(
@@ -818,10 +819,16 @@ const transcription = createTranscriptionAgency(
     referenceRatio: 1.5,
     releaseThreshold: 0.05,
     releaseMs: 300,
+    autoRestart: true,
+    restartDelayMs: 125,
+    maxRestartCount: 2,
   },
   {
     onTranscriptionEvent(event) {
       transcriptionEvents.push(event);
+    },
+    onTranscriptionRecommendation(recommendation) {
+      transcriptionRecommendations.push(recommendation);
     },
     onAgencyCommand(target, command) {
       transcriptionCommands.push({ target, command });
@@ -859,7 +866,50 @@ if (transcriptionStates.length < 5) {
   throw new Error(`Expected CLJS transcription state callbacks, received ${transcriptionStates.length}`);
 }
 
+transcription.fail('network drop');
+const restartRecommendation = transcriptionRecommendations.find((recommendation) => recommendation.type === 'RESTART');
+if (!restartRecommendation ||
+    restartRecommendation.reason !== 'error' ||
+    restartRecommendation.delayMs !== 125 ||
+    restartRecommendation.restartCount !== 1 ||
+    restartRecommendation.maxRestartCount !== 2) {
+  throw new Error(`Expected CLJS transcription restart recommendation, received ${JSON.stringify(transcriptionRecommendations)}`);
+}
+
+const failedTranscriptionState = transcription.getState();
+if (failedTranscriptionState.restartCount !== 1 ||
+    failedTranscriptionState.pendingRestart?.type !== 'RESTART' ||
+    failedTranscriptionState.error !== 'network drop') {
+  throw new Error(`Expected CLJS transcription failure state to retain restart data, received ${JSON.stringify(failedTranscriptionState)}`);
+}
+
+transcription.stop();
+const cleanupRecommendation = transcriptionRecommendations.find((recommendation) => (
+  recommendation.type === 'CLEANUP' &&
+  recommendation.reason === 'stop'
+));
+if (!cleanupRecommendation || cleanupRecommendation.cancelRestart !== true || cleanupRecommendation.releaseBrowserResources !== true) {
+  throw new Error(`Expected CLJS transcription cleanup recommendation, received ${JSON.stringify(transcriptionRecommendations)}`);
+}
+
 transcription.dispose();
+
+const restartLimitedRecommendations = [];
+const restartLimitedTranscription = createTranscriptionAgency(
+  { autoRestart: true, maxRestartCount: 0 },
+  {
+    onTranscriptionRecommendation(recommendation) {
+      restartLimitedRecommendations.push(recommendation);
+    },
+  },
+);
+restartLimitedTranscription.start();
+restartLimitedTranscription.fail('permission denied');
+const stopRecommendation = restartLimitedRecommendations.find((recommendation) => recommendation.type === 'STOP');
+if (!stopRecommendation || stopRecommendation.reason !== 'maxRestartCount') {
+  throw new Error(`Expected CLJS transcription max-restart stop recommendation, received ${JSON.stringify(restartLimitedRecommendations)}`);
+}
+restartLimitedTranscription.dispose();
 
 const conversationEvents = [];
 const conversationCommands = [];
