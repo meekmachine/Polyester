@@ -440,10 +440,34 @@ export interface VocalConfig {
   priority?: number;
 }
 
+export interface VocalVisemeDebug {
+  provider?: string;
+  providerId?: number;
+  providerTimeMs?: number;
+  audioOffsetMs?: number;
+  visualOffsetMs?: number;
+  durationMs?: number;
+  baseCanonicalVisemeId?: number;
+  canonicalVisemeId?: number;
+  visemeId?: number;
+  word?: string;
+  morphTargetKey?: string;
+  segment?: string;
+  refined?: boolean;
+  visualLeadMs?: number;
+  sampleTimeSec?: number;
+  jawValue?: number;
+  totalLipActivation?: number;
+  activeMorphValue?: number;
+  [key: string]: unknown;
+}
+
 export interface VocalVisemeEvent {
   visemeId: number;
   offsetMs: number;
   durationMs: number;
+  debug?: VocalVisemeDebug;
+  [key: string]: unknown;
 }
 
 export interface VocalWordTiming {
@@ -470,6 +494,7 @@ export interface VocalSnippet {
   snippetIntensityScale: number;
   snippetJawScale?: number;
   autoVisemeJaw?: boolean;
+  visemeDebug?: VocalVisemeDebug[];
   loop: boolean;
   maxTime: number;
   curves: Record<string, AnimationCurvePoint[]>;
@@ -576,6 +601,7 @@ export interface LipSyncEvent {
   wordIndex?: number;
   snippetName?: string;
   eventCount?: number;
+  debugTimeline?: VocalVisemeDebug[];
   [key: string]: unknown;
 }
 

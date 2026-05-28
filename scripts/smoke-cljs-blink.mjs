@@ -560,7 +560,12 @@ if (!vocalEffects.some((effect) => effect.op === 'pause') || !vocalEffects.some(
 }
 
 const azureName = vocal.processVisemeEvents(
-  [{ visemeId: 1, offsetMs: 0, durationMs: 120 }],
+  [{
+    visemeId: 1,
+    offsetMs: 0,
+    durationMs: 120,
+    debug: { provider: 'azure', providerId: 1, canonicalVisemeId: 1, morphTargetKey: '1' },
+  }],
   'azure_vocal_test',
 );
 if (azureName !== 'azure_vocal_test') {
@@ -569,6 +574,15 @@ if (azureName !== 'azure_vocal_test') {
 
 if (vocalScheduled.length !== 2 || vocalRemoved[0] !== vocalName) {
   throw new Error(`Expected starting Azure vocal to replace previous sentence, scheduled=${vocalScheduled.length}, removed=${vocalRemoved.join(', ')}`);
+}
+
+const azureVocalDebug = vocalScheduled[1].snippet.visemeDebug?.[0];
+if (azureVocalDebug?.provider !== 'azure' ||
+    azureVocalDebug.morphTargetKey !== '1' ||
+    typeof azureVocalDebug.jawValue !== 'number' ||
+    typeof azureVocalDebug.totalLipActivation !== 'number' ||
+    typeof azureVocalDebug.activeMorphValue !== 'number') {
+  throw new Error(`Expected vocal snippet to expose Azure activation debug, received ${JSON.stringify(vocalScheduled[1].snippet.visemeDebug)}`);
 }
 
 vocal.stopSentence();
@@ -655,6 +669,10 @@ const lipSyncAzureName = lipSync.processAzureVisemes(
     { visemeId: 4, time: 0.12 },
   ],
   240,
+  {
+    wordTimings: [{ word: 'ah', start: 0, end: 0.24 }],
+    visualLeadMs: 20,
+  },
 );
 
 if (!lipSyncAzureName?.startsWith('azure_lipsync_')) {
@@ -663,6 +681,15 @@ if (!lipSyncAzureName?.startsWith('azure_lipsync_')) {
 
 if (lipSyncScheduled.length !== 2 || lipSyncScheduled[1].snippet.snippetIntensityScale !== 0.75) {
   throw new Error(`Expected CLJS lipsync Azure scheduling with configured intensity, received ${JSON.stringify(lipSyncScheduled[1])}`);
+}
+
+const lipSyncAzureEvent = lipSyncEvents.find((event) => event.type === 'AZURE_SCHEDULED');
+const lipSyncAzureDebug = lipSyncAzureEvent?.debugTimeline?.[0];
+if (lipSyncAzureDebug?.provider !== 'azure' ||
+    lipSyncAzureDebug.word !== 'ah' ||
+    lipSyncAzureDebug.visualLeadMs !== 20 ||
+    lipSyncAzureDebug.morphTargetKey !== String(lipSyncAzureDebug.canonicalVisemeId)) {
+  throw new Error(`Expected CLJS lipsync Azure debug timeline, received ${JSON.stringify(lipSyncAzureEvent)}`);
 }
 
 const neutralName = lipSync.endSpeech();
@@ -764,6 +791,15 @@ const ledViseme = azurePlan.vocalTimeline.visemes.find((event) => event.visemeId
 const rawTimelineViseme = azurePlan.timeline.find((event) => event.type === 'VISEME' && event.visemeId === 4);
 if (!(ledViseme?.offsetMs < rawTimelineViseme?.offsetMs)) {
   throw new Error(`Expected Azure visual lead in vocal timeline, led=${JSON.stringify(ledViseme)}, raw=${JSON.stringify(rawTimelineViseme)}`);
+}
+
+const refinedThDebug = azurePlan.vocalTimeline.visemes.find((event) => event.debug?.providerId === 19)?.debug;
+if (refinedThDebug?.provider !== 'azure' ||
+    refinedThDebug.word !== 'growth' ||
+    refinedThDebug.canonicalVisemeId !== 13 ||
+    refinedThDebug.refined !== true ||
+    refinedThDebug.visualLeadMs !== 35) {
+  throw new Error(`Expected Azure TH refinement debug data, received ${JSON.stringify(azurePlan.vocalTimeline.visemes)}`);
 }
 
 tts.playbackStarted(utteranceId);
