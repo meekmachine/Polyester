@@ -1,11 +1,14 @@
 import {
   createAnimationAgency,
   createBlinkAgency,
+  createConversationAgency,
   createEyeHeadTrackingAgency,
   createGazeAgency,
   createHairAgency,
   createLipSyncAgency,
   createProsodicAgency,
+  createTranscriptionAgency,
+  createTTSAgency,
   createVocalAgency,
 } from '../dist/cljs/index.js';
 
@@ -696,6 +699,198 @@ if (lipSyncStates.length < 5) {
 
 lipSync.dispose();
 
+const ttsEvents = [];
+const ttsTimelines = [];
+const ttsCommands = [];
+const ttsStates = [];
+
+const tts = createTTSAgency(
+  { rate: 1, azureVisualLeadMs: 35 },
+  {
+    onTTSEvent(event) {
+      ttsEvents.push(event);
+    },
+    onTTSTimeline(timeline, vocalTimeline, emotionEvents) {
+      ttsTimelines.push({ timeline, vocalTimeline, emotionEvents });
+    },
+    onAgencyCommand(target, command) {
+      ttsCommands.push({ target, command });
+    },
+    onState(state) {
+      if (state?.status && Array.isArray(state?.currentTimeline)) {
+        ttsStates.push(state);
+      }
+    },
+  },
+);
+
+const utteranceId = tts.startSpeech('we feel growth \u2600');
+if (!utteranceId?.startsWith('utt_')) {
+  throw new Error(`Expected CLJS TTS utterance id, received ${utteranceId}`);
+}
+
+const localPlan = tts.planText('we feel growth \u2600');
+if (localPlan.text !== 'we feel growth' || localPlan.emotionEvents.length !== 1) {
+  throw new Error(`Expected CLJS TTS local plan to strip emoji into emotion events, received ${JSON.stringify(localPlan)}`);
+}
+
+const azurePlan = tts.planAzureResponse('we feel growth \u2600', {
+  word_boundaries: [
+    { word: 'we', start_time: 0.04, end_time: 0.14 },
+    { word: 'feel', start_time: 0.16, end_time: 0.34 },
+    { word: 'growth', start_time: 0.4, end_time: 0.68 },
+  ],
+  visemes: [
+    { id: 6, time: 0.06 },
+    { viseme_id: 4, audio_offset: 0.24 },
+    { viseme_id: 19, audioOffset: 6000000 },
+  ],
+});
+
+if (azurePlan.vocalTimeline.source !== 'azure') {
+  throw new Error(`Expected Azure TTS vocal timeline source, received ${JSON.stringify(azurePlan.vocalTimeline)}`);
+}
+
+if (azurePlan.vocalTimeline.durationSec < 0.79) {
+  throw new Error(`Expected Azure TTS to infer duration from viseme and word timing, received ${azurePlan.vocalTimeline.durationSec}`);
+}
+
+const azureVisemeIds = azurePlan.vocalTimeline.visemes.map((event) => event.visemeId);
+if (!azureVisemeIds.includes(4) || !azureVisemeIds.includes(13)) {
+  throw new Error(`Expected Azure viseme refinement for long-E and TH, received ${azureVisemeIds.join(', ')}`);
+}
+
+const ledViseme = azurePlan.vocalTimeline.visemes.find((event) => event.visemeId === 4);
+const rawTimelineViseme = azurePlan.timeline.find((event) => event.type === 'VISEME' && event.visemeId === 4);
+if (!(ledViseme?.offsetMs < rawTimelineViseme?.offsetMs)) {
+  throw new Error(`Expected Azure visual lead in vocal timeline, led=${JSON.stringify(ledViseme)}, raw=${JSON.stringify(rawTimelineViseme)}`);
+}
+
+tts.playbackStarted();
+tts.processWordBoundary('we', 0.05);
+tts.finishSpeech();
+
+if (!ttsEvents.some((event) => event.type === 'AZURE_RESPONSE_PLANNED') ||
+    !ttsEvents.some((event) => event.type === 'WORD_BOUNDARY')) {
+  throw new Error(`Expected CLJS TTS planning and word boundary events, received ${JSON.stringify(ttsEvents)}`);
+}
+
+if (!ttsCommands.some((entry) => entry.target === 'vocal' && entry.command.type === 'startTimeline') ||
+    !ttsCommands.some((entry) => entry.target === 'prosodic' && entry.command.type === 'pulse')) {
+  throw new Error(`Expected CLJS TTS to command vocal and prosodic agencies, received ${JSON.stringify(ttsCommands)}`);
+}
+
+if (ttsTimelines.length < 2 || ttsStates.length < 6 || tts.getState().status !== 'idle') {
+  throw new Error(`Unexpected CLJS TTS smoke state: timelines=${ttsTimelines.length}, states=${ttsStates.length}, state=${JSON.stringify(tts.getState())}`);
+}
+
+tts.dispose();
+
+const transcriptionEvents = [];
+const transcriptionCommands = [];
+const transcriptionStates = [];
+
+const transcription = createTranscriptionAgency(
+  {
+    interruptionThreshold: 0.1,
+    referenceRatio: 1.5,
+    releaseThreshold: 0.05,
+    releaseMs: 300,
+  },
+  {
+    onTranscriptionEvent(event) {
+      transcriptionEvents.push(event);
+    },
+    onAgencyCommand(target, command) {
+      transcriptionCommands.push({ target, command });
+    },
+    onState(state) {
+      if (state?.status && typeof state?.isListening === 'boolean') {
+        transcriptionStates.push(state);
+      }
+    },
+  },
+);
+
+transcription.start();
+transcription.processAudioLevel(0.2, 0.02, 1000);
+transcription.processResult(' stop that ', true, 0.9, 'speechRecognition');
+transcription.processAudioLevel(0.01, 0, 1400);
+
+const transcriptionState = transcription.getState();
+if (transcriptionState.finalTranscript !== 'stop that' || transcriptionState.isInterrupted !== false) {
+  throw new Error(`Unexpected CLJS transcription state: ${JSON.stringify(transcriptionState)}`);
+}
+
+if (!transcriptionEvents.some((event) => event.type === 'INTERRUPTION_DETECTED') ||
+    !transcriptionEvents.some((event) => event.type === 'INTERRUPTION_RELEASED') ||
+    !transcriptionEvents.some((event) => event.type === 'TRANSCRIPT_FINAL')) {
+  throw new Error(`Expected CLJS transcription interruption/final events, received ${JSON.stringify(transcriptionEvents)}`);
+}
+
+if (!transcriptionCommands.some((entry) => entry.target === 'conversation' && entry.command.type === 'interrupt') ||
+    !transcriptionCommands.some((entry) => entry.target === 'conversation' && entry.command.type === 'userSpeech')) {
+  throw new Error(`Expected CLJS transcription to command conversation, received ${JSON.stringify(transcriptionCommands)}`);
+}
+
+if (transcriptionStates.length < 5) {
+  throw new Error(`Expected CLJS transcription state callbacks, received ${transcriptionStates.length}`);
+}
+
+transcription.dispose();
+
+const conversationEvents = [];
+const conversationCommands = [];
+const conversationStates = [];
+
+const conversation = createConversationAgency(
+  { autoListen: true },
+  {
+    onConversationEvent(event) {
+      conversationEvents.push(event);
+    },
+    onAgencyCommand(target, command) {
+      conversationCommands.push({ target, command });
+    },
+    onState(state) {
+      if (state?.state && typeof state?.isRunning === 'boolean') {
+        conversationStates.push(state);
+      }
+    },
+  },
+);
+
+conversation.start();
+conversation.agentStart('hello there');
+conversation.interrupt('audio');
+conversation.userSpeech('wait', true, true);
+conversation.processingComplete();
+conversation.stop();
+
+const conversationState = conversation.getState();
+if (conversationState.state !== 'idle' || conversationState.isRunning !== false) {
+  throw new Error(`Unexpected CLJS conversation state: ${JSON.stringify(conversationState)}`);
+}
+
+if (!conversationEvents.some((event) => event.type === 'AGENT_SPEAKING') ||
+    !conversationEvents.some((event) => event.type === 'INTERRUPTED') ||
+    !conversationEvents.some((event) => event.type === 'USER_FINAL')) {
+  throw new Error(`Expected CLJS conversation turn events, received ${JSON.stringify(conversationEvents)}`);
+}
+
+if (!conversationCommands.some((entry) => entry.target === 'tts' && entry.command.type === 'startSpeech') ||
+    !conversationCommands.some((entry) => entry.target === 'tts' && entry.command.type === 'stop') ||
+    !conversationCommands.some((entry) => entry.target === 'transcription' && entry.command.type === 'start') ||
+    !conversationCommands.some((entry) => entry.target === 'gaze' && entry.command.type === 'resetToNeutral')) {
+  throw new Error(`Expected CLJS conversation orchestration commands, received ${JSON.stringify(conversationCommands)}`);
+}
+
+if (conversationStates.length < 7) {
+  throw new Error(`Expected CLJS conversation state callbacks, received ${conversationStates.length}`);
+}
+
+conversation.dispose();
+
 const hairObjectStates = [];
 const hairPhysicsUpdates = [];
 const hairStates = [];
@@ -791,5 +986,5 @@ if (hairStates.length < 8) {
 hair.dispose();
 
 console.log(
-  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; eye/head states ${eyeHeadStates.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; lipsync states ${lipSyncStates.length}; hair states ${hairStates.length}`,
+  `CLJS smoke passed: blink ${snippet.name}; automatic count ${scheduledAfterAuto - 1}; animation states ${animationStates.length}; gaze snippets ${gazeScheduled.length}; eye/head states ${eyeHeadStates.length}; prosodic states ${prosodicStates.length}; vocal states ${vocalStates.length}; lipsync states ${lipSyncStates.length}; tts states ${ttsStates.length}; transcription states ${transcriptionStates.length}; conversation states ${conversationStates.length}; hair states ${hairStates.length}`,
 );

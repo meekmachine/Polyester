@@ -5,6 +5,10 @@
   ([config] (runtime/create-in-process-animation-agency config nil))
   ([config host] (runtime/create-in-process-animation-agency config host)))
 
+(defn create-conversation-agency
+  ([config] (runtime/create-in-process-conversation-agency config nil))
+  ([config host] (runtime/create-in-process-conversation-agency config host)))
+
 (defn create-blink-agency
   ([config] (runtime/create-in-process-blink-agency config nil))
   ([config host] (runtime/create-in-process-blink-agency config host)))
@@ -33,11 +37,22 @@
   ([config] (runtime/create-in-process-lipsync-agency config nil))
   ([config host] (runtime/create-in-process-lipsync-agency config host)))
 
+(defn create-transcription-agency
+  ([config] (runtime/create-in-process-transcription-agency config nil))
+  ([config host] (runtime/create-in-process-transcription-agency config host)))
+
+(defn create-tts-agency
+  ([config] (runtime/create-in-process-tts-agency config nil))
+  ([config host] (runtime/create-in-process-tts-agency config host)))
+
 (defn create-agency-worker-client [worker host]
   (runtime/create-worker-client worker host))
 
 (defn create-animation-worker-client [worker host]
   (runtime/create-animation-worker-client worker host))
+
+(defn create-conversation-worker-client [worker host]
+  (runtime/create-conversation-worker-client worker host))
 
 (defn create-blink-worker-client [worker host]
   (runtime/create-blink-worker-client worker host))
@@ -60,25 +75,37 @@
 (defn create-lipsync-worker-client [worker host]
   (runtime/create-lipsync-worker-client worker host))
 
+(defn create-transcription-worker-client [worker host]
+  (runtime/create-transcription-worker-client worker host))
+
+(defn create-tts-worker-client [worker host]
+  (runtime/create-tts-worker-client worker host))
+
 (defn install-latticework
   ([] (install-latticework js/globalThis))
   ([target]
    (let [api #js {:createBlinkAgency create-blink-agency
                   :createAnimationAgency create-animation-agency
+                  :createConversationAgency create-conversation-agency
                   :createGazeAgency create-gaze-agency
                   :createEyeHeadTrackingAgency create-eye-head-tracking-agency
                   :createHairAgency create-hair-agency
                   :createLipSyncAgency create-lipsync-agency
                   :createProsodicAgency create-prosodic-agency
+                  :createTranscriptionAgency create-transcription-agency
+                  :createTTSAgency create-tts-agency
                   :createVocalAgency create-vocal-agency
                   :createAgencyWorkerClient create-agency-worker-client
                   :createAnimationWorkerClient create-animation-worker-client
                   :createBlinkWorkerClient create-blink-worker-client
+                  :createConversationWorkerClient create-conversation-worker-client
                   :createGazeWorkerClient create-gaze-worker-client
                   :createEyeHeadTrackingWorkerClient create-eye-head-tracking-worker-client
                   :createHairWorkerClient create-hair-worker-client
                   :createLipSyncWorkerClient create-lipsync-worker-client
                   :createProsodicWorkerClient create-prosodic-worker-client
+                  :createTranscriptionWorkerClient create-transcription-worker-client
+                  :createTTSWorkerClient create-tts-worker-client
                   :createVocalWorkerClient create-vocal-worker-client}]
      (aset target "Latticework" api)
      api)))
