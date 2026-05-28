@@ -988,6 +988,7 @@ if (!conversationEvents.some((event) => event.type === 'AGENT_SPEAKING') ||
 
 if (!conversationCommands.some((entry) => entry.target === 'tts' && entry.command.type === 'startSpeech') ||
     !conversationCommands.some((entry) => entry.target === 'tts' && entry.command.type === 'stop') ||
+    !conversationCommands.some((entry) => entry.target === 'lipsync' && entry.command.type === 'stop') ||
     !conversationCommands.some((entry) => entry.target === 'transcription' && entry.command.type === 'start') ||
     !conversationCommands.some((entry) => entry.target === 'gaze' && entry.command.type === 'resetToNeutral')) {
   throw new Error(`Expected CLJS conversation orchestration commands, received ${JSON.stringify(conversationCommands)}`);
@@ -998,6 +999,38 @@ if (conversationStates.length < 7) {
 }
 
 conversation.dispose();
+
+const featureGatedConversationCommands = [];
+const featureGatedConversation = createConversationAgency(
+  { autoListen: false, useGaze: false, useProsody: false, useBlink: false },
+  {
+    onAgencyCommand(target, command) {
+      featureGatedConversationCommands.push({ target, command });
+    },
+  },
+);
+
+featureGatedConversation.start();
+featureGatedConversation.agentStart('quiet mode');
+featureGatedConversation.interrupt('manual');
+featureGatedConversation.stop();
+
+if (featureGatedConversationCommands.some((entry) => (
+  entry.target === 'gaze' ||
+  entry.target === 'prosodic' ||
+  entry.target === 'blink' ||
+  (entry.target === 'transcription' && entry.command.type === 'start')
+))) {
+  throw new Error(`Expected disabled conversation features to skip their commands, received ${JSON.stringify(featureGatedConversationCommands)}`);
+}
+
+if (!featureGatedConversationCommands.some((entry) => entry.target === 'tts' && entry.command.type === 'stop') ||
+    !featureGatedConversationCommands.some((entry) => entry.target === 'vocal' && entry.command.type === 'stop') ||
+    !featureGatedConversationCommands.some((entry) => entry.target === 'lipsync' && entry.command.type === 'stop')) {
+  throw new Error(`Expected disabled-feature conversation to still stop speech surfaces, received ${JSON.stringify(featureGatedConversationCommands)}`);
+}
+
+featureGatedConversation.dispose();
 
 const hairObjectStates = [];
 const hairPhysicsUpdates = [];
