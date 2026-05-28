@@ -701,9 +701,55 @@
           (recur (inc i) jaw-curve))))))
 
 (defn- normalize-viseme-event [event]
-  {:visemeId (int (clamp 0 14 (:visemeId event)))
-   :offsetMs (max 0 (number-or (:offsetMs event) 0))
-   :durationMs (max 0 (number-or (:durationMs event) 0))})
+  (cond-> {:visemeId (int (clamp 0 14 (:visemeId event)))
+           :offsetMs (max 0 (number-or (:offsetMs event) 0))
+           :durationMs (max 0 (number-or (:durationMs event) 0))}
+    (:debug event) (assoc :debug (:debug event))))
+
+(defn- curve-value-at [curve time-sec]
+  (let [points (vec (sort-by :time (or curve [])))]
+    (cond
+      (empty? points) 0
+      (<= time-sec (:time (first points))) (number-or (:intensity (first points)) 0)
+      (>= time-sec (:time (last points))) (number-or (:intensity (last points)) 0)
+      :else
+      (loop [previous (first points)
+             remaining (rest points)]
+        (let [current (first remaining)]
+          (if (or (nil? current) (<= time-sec (:time current)))
+            (let [start-time (number-or (:time previous) 0)
+                  end-time (number-or (:time current) start-time)
+                  start-intensity (number-or (:intensity previous) 0)
+                  end-intensity (number-or (:intensity current) start-intensity)
+                  span (max 0.0001 (- end-time start-time))
+                  progress (protocol/clamp 0 1 (/ (- time-sec start-time) span))]
+              (+ start-intensity (* (- end-intensity start-intensity) progress)))
+            (recur current (rest remaining))))))))
+
+(defn- lip-curve-key? [key]
+  (when (re-matches #"\d+" key)
+    (<= 0 (js/parseInt key 10) 14)))
+
+(defn- total-lip-activation-at [curves time-sec]
+  (reduce-kv
+   (fn [total key curve]
+     (if (lip-curve-key? key)
+       (+ total (curve-value-at curve time-sec))
+       total))
+   0
+   (or curves {})))
+
+(defn- viseme-debug-summary [event curves]
+  (let [viseme-id (:visemeId event)
+        sample-time-sec (/ (+ (:offsetMs event) (/ (:durationMs event) 2)) 1000)
+        morph-target-key (str viseme-id)]
+    (merge (:debug event)
+           {:visemeId viseme-id
+            :morphTargetKey morph-target-key
+            :sampleTimeSec sample-time-sec
+            :jawValue (curve-value-at (get curves jaw-au) sample-time-sec)
+            :totalLipActivation (total-lip-activation-at curves sample-time-sec)
+            :activeMorphValue (curve-value-at (get curves morph-target-key) sample-time-sec)})))
 
 (defn build-vocal-snippet
   ([events] (build-vocal-snippet events nil nil))
@@ -720,6 +766,7 @@
         :snippetPlaybackRate 1.0
         :snippetIntensityScale 1.0
         :snippetJawScale jaw-scale
+        :visemeDebug []
         :loop false
         :maxTime 0
         :curves {}}
@@ -755,6 +802,7 @@
           :snippetIntensityScale 1.0
           :snippetJawScale jaw-scale
           :autoVisemeJaw false
+          :visemeDebug (mapv #(viseme-debug-summary % articulated-curves) events)
           :loop false
           :maxTime max-time
           :curves articulated-curves})))))

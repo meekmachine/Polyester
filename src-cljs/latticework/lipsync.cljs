@@ -383,6 +383,10 @@
        (sort-by :time)
        vec))
 
+(defn- word-label [word]
+  (when-let [text (:word word)]
+    (str text)))
+
 (defn- azure-duration-ms [current next-event total-duration-ms]
   (let [offset-ms (max 0 (.round js/Math (* (:time current) 1000)))
         remaining-ms (if (finite-number? total-duration-ms)
@@ -404,29 +408,46 @@
                         (+ raw-span-ms overlap-ms))]
         (clamp-duration desired-ms 1 max-ms remaining-ms)))))
 
-(defn- push-azure-event [timeline provider-id canonical-id offset-ms duration-ms visual-lead-ms]
-  (if (or (= provider-id 0) (<= duration-ms 0))
-    timeline
-    (if (and (get diphthong-targets provider-id)
-             (>= duration-ms diphthong-min-duration-ms))
-      (let [[first-viseme second-viseme] (get diphthong-targets provider-id)
-            second-offset (min (+ offset-ms duration-ms (- diphthong-secondary-min-ms))
-                               (+ offset-ms (* duration-ms 0.55)))
-            first-duration (max diphthong-secondary-min-ms
-                                (min duration-ms
-                                     (+ (- second-offset offset-ms) (* duration-ms 0.25))))
-            second-duration (max diphthong-secondary-min-ms
-                                 (- (+ offset-ms duration-ms) second-offset))]
-        (conj timeline
-              {:visemeId first-viseme
-               :offsetMs (.round js/Math (apply-visual-lead offset-ms visual-lead-ms))
-               :durationMs (.round js/Math first-duration)}
-              {:visemeId second-viseme
-               :offsetMs (.round js/Math (apply-visual-lead second-offset visual-lead-ms))
-               :durationMs (.round js/Math second-duration)}))
-      (conj timeline {:visemeId canonical-id
-                      :offsetMs (.round js/Math (apply-visual-lead offset-ms visual-lead-ms))
-                      :durationMs (.round js/Math duration-ms)}))))
+(defn- azure-debug [event canonical-id offset-ms duration-ms visual-lead-ms segment]
+  (cond-> {:provider "azure"
+           :providerId (:providerId event)
+           :providerTimeMs (:timeMs event)
+           :audioOffsetMs (.round js/Math offset-ms)
+           :visualOffsetMs (.round js/Math (apply-visual-lead offset-ms visual-lead-ms))
+           :durationMs (.round js/Math duration-ms)
+           :baseCanonicalVisemeId (:baseCanonicalId event)
+           :canonicalVisemeId canonical-id
+           :morphTargetKey (str canonical-id)
+           :segment segment}
+    (:word event) (assoc :word (:word event))
+    (not= (:baseCanonicalId event) canonical-id) (assoc :refined true)
+    (and (finite-number? visual-lead-ms) (pos? visual-lead-ms)) (assoc :visualLeadMs visual-lead-ms)))
+
+(defn- azure-viseme-event [event canonical-id offset-ms duration-ms visual-lead-ms segment]
+  {:visemeId canonical-id
+   :offsetMs (.round js/Math (apply-visual-lead offset-ms visual-lead-ms))
+   :durationMs (.round js/Math duration-ms)
+   :debug (azure-debug event canonical-id offset-ms duration-ms visual-lead-ms segment)})
+
+(defn- push-azure-event [timeline event offset-ms duration-ms visual-lead-ms]
+  (let [provider-id (:providerId event)
+        canonical-id (:canonicalId event)]
+    (if (or (= provider-id 0) (<= duration-ms 0))
+      timeline
+      (if (and (get diphthong-targets provider-id)
+               (>= duration-ms diphthong-min-duration-ms))
+        (let [[first-viseme second-viseme] (get diphthong-targets provider-id)
+              second-offset (min (+ offset-ms duration-ms (- diphthong-secondary-min-ms))
+                                 (+ offset-ms (* duration-ms 0.55)))
+              first-duration (max diphthong-secondary-min-ms
+                                  (min duration-ms
+                                       (+ (- second-offset offset-ms) (* duration-ms 0.25))))
+              second-duration (max diphthong-secondary-min-ms
+                                   (- (+ offset-ms duration-ms) second-offset))]
+          (conj timeline
+                (azure-viseme-event event first-viseme offset-ms first-duration visual-lead-ms "diphthong-primary")
+                (azure-viseme-event event second-viseme second-offset second-duration visual-lead-ms "diphthong-secondary")))
+        (conj timeline (azure-viseme-event event canonical-id offset-ms duration-ms visual-lead-ms "single"))))))
 
 (defn- mapped-azure-events [events options]
   (loop [remaining (normalize-azure-visemes events)
@@ -436,11 +457,12 @@
       (let [event (first remaining)
             provider-id (:providerId event)
             base-canonical (get azure-to-canonical provider-id 2)
+            word (find-word-at-time (:time event) (:wordTimings options))
             canonical-id (refine-azure-viseme
                           provider-id
                           base-canonical
                           (:time event)
-                          (find-word-at-time (:time event) (:wordTimings options)))
+                          word)
             time-ms (* (:time event) 1000)
             previous (last mapped)]
         (if (nil? canonical-id)
@@ -451,7 +473,10 @@
             (recur (rest remaining) mapped)
             (recur (rest remaining)
                    (conj mapped (assoc event
+                                       :timeMs (.round js/Math time-ms)
+                                       :baseCanonicalId base-canonical
                                        :canonicalId canonical-id
+                                       :word (word-label word)
                                        :className (azure-viseme-class provider-id canonical-id))))))))))
 
 (defn azure-visemes-to-timeline
@@ -465,12 +490,10 @@
         (vec (sort-by :offsetMs timeline))
         (let [event (nth events index)
               next-event (when (< (inc index) (count events)) (nth events (inc index)))
-              provider-id (:providerId event)
-              canonical-id (:canonicalId event)
               offset-ms (max 0 (.round js/Math (* (:time event) 1000)))
               duration-ms (azure-duration-ms event next-event total-duration-ms)]
           (recur (inc index)
-                 (push-azure-event timeline provider-id canonical-id offset-ms duration-ms visual-lead-ms))))))))
+                 (push-azure-event timeline event offset-ms duration-ms visual-lead-ms))))))))
 
 (defn process-azure-visemes! [state events total-duration-ms snippet-name options]
   (let [timeline (azure-visemes-to-timeline events total-duration-ms options)
@@ -493,7 +516,8 @@
                       (schedule-snippet-outputs snippet cleanup-ms)
                       [(event-output {:type "AZURE_SCHEDULED"
                                       :snippetName snippet-name
-                                      :eventCount (count events)})
+                                      :eventCount (count events)
+                                      :debugTimeline (mapv :debug timeline)})
                        (state-output state)])))))))
 
 (defn end-speech! [state]

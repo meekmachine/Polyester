@@ -160,7 +160,8 @@ try {
       word_boundaries: item.wordTimings,
       visemes: item.visemes,
     });
-    const actual = normalizeTimeline(plan.vocalTimeline.visemes);
+    const actualEvents = plan.vocalTimeline.visemes;
+    const actual = normalizeTimeline(actualEvents);
 
     tts.dispose();
 
@@ -172,6 +173,22 @@ try {
           `Actual:   ${JSON.stringify(actual)}`,
         ].join('\n'),
       );
+    }
+
+    const debug = actualEvents.find((event) => event.debug?.provider === 'azure')?.debug;
+    if (!debug ||
+        typeof debug.providerId !== 'number' ||
+        typeof debug.providerTimeMs !== 'number' ||
+        typeof debug.canonicalVisemeId !== 'number' ||
+        debug.morphTargetKey !== String(debug.canonicalVisemeId)) {
+      throw new Error(`Azure debug metadata missing for "${item.name}": ${JSON.stringify(actualEvents)}`);
+    }
+
+    if (item.name === 'long-e, f/v, and final th') {
+      const thDebug = actualEvents.find((event) => event.debug?.providerId === 19)?.debug;
+      if (thDebug?.word !== 'growth' || thDebug.canonicalVisemeId !== 13 || thDebug.refined !== true) {
+        throw new Error(`Azure TH refinement debug missing for "${item.name}": ${JSON.stringify(actualEvents)}`);
+      }
     }
   }
 } finally {
