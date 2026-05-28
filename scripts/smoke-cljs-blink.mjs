@@ -394,7 +394,7 @@ const prosodicFadePlans = [];
 const prosodicStates = [];
 
 const prosodic = createProsodicAgency(
-  { fadeSteps: 3, fadeStepInterval: 40, defaultIntensity: 0.6 },
+  { fadeSteps: 3, fadeStepInterval: 40, defaultIntensity: 0.6, pulsePriority: 7 },
   {
     scheduleSnippet(snippet, opts) {
       prosodicScheduled.push({ snippet, opts });
@@ -456,6 +456,18 @@ if (!prosodicRemoved.includes('brow_small') || !prosodicRemoved.includes('head_s
   throw new Error(`Expected odd prosodic pulse to restart brow and head, removed ${prosodicRemoved.join(', ')}`);
 }
 
+const oddPulseScheduled = prosodicScheduled.slice(2, 4);
+if (oddPulseScheduled.length !== 2 || !oddPulseScheduled.every((entry) => entry.snippet.snippetPriority === 7)) {
+  throw new Error(`Expected odd prosodic pulse to use pulse priority, received ${JSON.stringify(oddPulseScheduled)}`);
+}
+
+prosodic.pulse(2);
+const browRestartCount = prosodicRemoved.filter((name) => name === 'brow_small').length;
+const headRestartCount = prosodicRemoved.filter((name) => name === 'head_small').length;
+if (browRestartCount !== 2 || headRestartCount !== 1 || prosodicScheduled.at(-1)?.snippet.name !== 'brow_small') {
+  throw new Error(`Expected even prosodic pulse to restart brow only, scheduled=${JSON.stringify(prosodicScheduled.at(-1))}, removed=${prosodicRemoved.join(', ')}`);
+}
+
 prosodic.stopTalking();
 prosodicState = prosodic.getState();
 if (prosodicState.browStatus !== 'stopping' || prosodicState.headStatus !== 'stopping') {
@@ -471,7 +483,8 @@ if (prosodic.getState().isLooping !== false) {
   throw new Error('Expected prosodic stop to clear looping state');
 }
 
-if (!prosodicEvents.some((event) => event.type === 'PULSE' && event.wordIndex === 1)) {
+if (!prosodicEvents.some((event) => event.type === 'PULSE' && event.wordIndex === 1 && event.channel === 'both') ||
+    !prosodicEvents.some((event) => event.type === 'PULSE' && event.wordIndex === 2 && event.channel === 'brow')) {
   throw new Error(`Expected prosodic pulse event, received ${JSON.stringify(prosodicEvents)}`);
 }
 
