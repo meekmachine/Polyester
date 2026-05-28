@@ -1,12 +1,15 @@
 (ns latticework.runtime
   (:require [latticework.animation :as animation]
             [latticework.blink :as blink]
+            [latticework.conversation :as conversation]
             [latticework.eye-head-tracking :as eye-head-tracking]
             [latticework.gaze :as gaze]
             [latticework.hair :as hair]
             [latticework.lipsync :as lipsync]
             [latticework.prosodic :as prosodic]
             [latticework.protocol :as protocol]
+            [latticework.transcription :as transcription]
+            [latticework.tts :as tts]
             [latticework.vocal :as vocal]))
 
 (defn- fn-prop [value key]
@@ -154,6 +157,47 @@
     "lipsyncCleanupPlan"
     (when-let [on-lipsync-cleanup-plan (fn-prop host "onLipSyncCleanupPlan")]
       (on-lipsync-cleanup-plan (protocol/data->js (:plan output))))
+
+    "ttsEvent"
+    (when-let [on-tts-event (fn-prop host "onTTSEvent")]
+      (on-tts-event (protocol/data->js (:event output))))
+
+    "ttsTimeline"
+    (when-let [on-tts-timeline (fn-prop host "onTTSTimeline")]
+      (on-tts-timeline
+       (protocol/data->js (:timeline output))
+       (protocol/data->js (:vocalTimeline output))
+       (protocol/data->js (:emotionEvents output))))
+
+    "transcriptionEvent"
+    (when-let [on-transcription-event (fn-prop host "onTranscriptionEvent")]
+      (on-transcription-event (protocol/data->js (:event output))))
+
+    "conversationEvent"
+    (when-let [on-conversation-event (fn-prop host "onConversationEvent")]
+      (on-conversation-event (protocol/data->js (:event output))))
+
+    "agencyCommand"
+    (let [target (:target output)
+          command (:command output)]
+      (when-let [on-agency-command (fn-prop host "onAgencyCommand")]
+        (on-agency-command target (protocol/data->js command)))
+      (case target
+        "tts" (when-let [on-tts-command (fn-prop host "onTTSCommand")]
+                (on-tts-command (protocol/data->js command)))
+        "transcription" (when-let [on-transcription-command (fn-prop host "onTranscriptionCommand")]
+                          (on-transcription-command (protocol/data->js command)))
+        "conversation" (when-let [on-conversation-command (fn-prop host "onConversationCommand")]
+                         (on-conversation-command (protocol/data->js command)))
+        "vocal" (when-let [on-vocal-command (fn-prop host "onVocalCommand")]
+                  (on-vocal-command (protocol/data->js command)))
+        "prosodic" (when-let [on-prosodic-command (fn-prop host "onProsodicCommand")]
+                     (on-prosodic-command (protocol/data->js command)))
+        "gaze" (when-let [on-gaze-command (fn-prop host "onGazeCommand")]
+                 (on-gaze-command (protocol/data->js command)))
+        "blink" (when-let [on-blink-command (fn-prop host "onBlinkCommand")]
+                  (on-blink-command (protocol/data->js command)))
+        nil))
 
     "applyHairState"
     (if-let [apply-hair-state (fn-prop host "applyHairState")]
@@ -547,9 +591,11 @@
                            ([word word-index actual-duration-ms]
                             (:result (emit! (lipsync/process-word! state word word-index actual-duration-ms nil)))))
             :processAzureVisemes (fn
-                                   ([events] (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) nil nil))))
+                                   ([events] (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) nil nil nil))))
                                    ([events total-duration-ms]
-                                    (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) total-duration-ms nil)))))
+                                    (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) total-duration-ms nil nil))))
+                                   ([events total-duration-ms options]
+                                    (:result (emit! (lipsync/process-azure-visemes! state (protocol/js->data events) total-duration-ms nil (protocol/js->data options))))))
             :endSpeech (fn []
                          (:result (emit! (lipsync/end-speech! state))))
             :stop (fn []
@@ -563,6 +609,137 @@
             :dispose (fn []
                        (emit! (lipsync/stop! state))
                        (clear-all-cleanups!)
+                       (reset! disposed true))}))))
+
+(defn create-in-process-tts-agency
+  ([config] (create-in-process-tts-agency config nil))
+  ([config host]
+   (let [state (tts/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)]
+     (letfn [(emit! [command-result]
+               (let [outputs (:outputs command-result)]
+                 (when-not @disposed
+                   (apply-outputs! host outputs))
+                 command-result))]
+       (apply-outputs! host [(protocol/emit-state tts/agency-name (tts/snapshot state))])
+       #js {:updateConfig (fn [config]
+                            (:result (emit! (tts/update-config! state (protocol/js->data config)))))
+            :startSpeech (fn [text]
+                           (:result (emit! (tts/start-speech! state text))))
+            :planText (fn [text]
+                        (protocol/data->js (:result (emit! (tts/plan-text! state text)))))
+            :planAzureResponse (fn
+                                  ([text response]
+                                   (protocol/data->js
+                                    (:result (emit! (tts/plan-azure-response! state text (protocol/js->data response) nil)))))
+                                  ([text response duration-sec]
+                                   (protocol/data->js
+                                    (:result (emit! (tts/plan-azure-response! state text (protocol/js->data response) duration-sec))))))
+            :playbackStarted (fn []
+                               (:result (emit! (tts/playback-started! state))))
+            :processWordBoundary (fn
+                                   ([word] (:result (emit! (tts/process-word-boundary! state word nil))))
+                                   ([word elapsed-sec]
+                                    (:result (emit! (tts/process-word-boundary! state word elapsed-sec)))))
+            :finishSpeech (fn []
+                            (:result (emit! (tts/finish-speech! state))))
+            :pause (fn []
+                     (:result (emit! (tts/pause! state))))
+            :resume (fn []
+                      (:result (emit! (tts/resume! state))))
+            :stop (fn []
+                    (:result (emit! (tts/stop! state))))
+            :fail (fn [message]
+                    (:result (emit! (tts/fail! state message))))
+            :getState (fn []
+                        (protocol/data->js (tts/tts-state state)))
+            :getSnapshot (fn []
+                           (protocol/data->js (tts/snapshot state)))
+            :dispose (fn []
+                       (emit! (tts/stop! state))
+                       (reset! disposed true))}))))
+
+(defn create-in-process-transcription-agency
+  ([config] (create-in-process-transcription-agency config nil))
+  ([config host]
+   (let [state (transcription/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)]
+     (letfn [(emit! [command-result]
+               (let [outputs (:outputs command-result)]
+                 (when-not @disposed
+                   (apply-outputs! host outputs))
+                 command-result))]
+       (apply-outputs! host [(protocol/emit-state transcription/agency-name (transcription/snapshot state))])
+       #js {:updateConfig (fn [config]
+                            (:result (emit! (transcription/update-config! state (protocol/js->data config)))))
+            :start (fn []
+                     (:result (emit! (transcription/start! state))))
+            :stop (fn []
+                    (:result (emit! (transcription/stop! state))))
+            :reset (fn []
+                     (:result (emit! (transcription/reset-state! state))))
+            :processResult (fn
+                             ([transcript is-final]
+                              (:result (emit! (transcription/process-result! state transcript is-final nil nil))))
+                             ([transcript is-final confidence]
+                              (:result (emit! (transcription/process-result! state transcript is-final confidence nil))))
+                             ([transcript is-final confidence source]
+                              (:result (emit! (transcription/process-result! state transcript is-final confidence source)))))
+            :processAudioLevel (fn
+                                  ([user-level reference-level]
+                                   (:result (emit! (transcription/process-audio-level! state user-level reference-level nil))))
+                                  ([user-level reference-level timestamp]
+                                   (:result (emit! (transcription/process-audio-level! state user-level reference-level timestamp)))))
+            :fail (fn [message]
+                    (:result (emit! (transcription/fail! state message))))
+            :getState (fn []
+                        (protocol/data->js (transcription/transcription-state state)))
+            :getSnapshot (fn []
+                           (protocol/data->js (transcription/snapshot state)))
+            :dispose (fn []
+                       (emit! (transcription/stop! state))
+                       (reset! disposed true))}))))
+
+(defn create-in-process-conversation-agency
+  ([config] (create-in-process-conversation-agency config nil))
+  ([config host]
+   (let [state (conversation/create-state (protocol/js->data config))
+         host (or host #js {})
+         disposed (atom false)]
+     (letfn [(emit! [command-result]
+               (let [outputs (:outputs command-result)]
+                 (when-not @disposed
+                   (apply-outputs! host outputs))
+                 command-result))]
+       (apply-outputs! host [(protocol/emit-state conversation/agency-name (conversation/snapshot state))])
+       #js {:updateConfig (fn [config]
+                            (:result (emit! (conversation/update-config! state (protocol/js->data config)))))
+            :start (fn []
+                     (:result (emit! (conversation/start! state))))
+            :stop (fn []
+                    (:result (emit! (conversation/stop! state))))
+            :agentStart (fn [text]
+                          (:result (emit! (conversation/agent-start! state text))))
+            :agentEnd (fn []
+                        (:result (emit! (conversation/agent-end! state))))
+            :userSpeech (fn
+                          ([text is-final]
+                           (:result (emit! (conversation/user-speech! state text is-final nil))))
+                          ([text is-final interrupted]
+                           (:result (emit! (conversation/user-speech! state text is-final interrupted)))))
+            :processingComplete (fn []
+                                  (:result (emit! (conversation/processing-complete! state))))
+            :interrupt (fn
+                         ([] (:result (emit! (conversation/interrupt! state nil))))
+                         ([source] (:result (emit! (conversation/interrupt! state source)))))
+            :getState (fn []
+                        (protocol/data->js (conversation/conversation-state state)))
+            :getSnapshot (fn []
+                           (protocol/data->js (conversation/snapshot state)))
+            :dispose (fn []
+                       (emit! (conversation/stop! state))
                        (reset! disposed true))}))))
 
 (defn create-in-process-hair-agency
@@ -837,7 +1014,9 @@
          :processAzureVisemes (fn
                                 ([events] (.post client #js {:agency "lipsync" :type "processAzureVisemes" :events events}))
                                 ([events total-duration-ms]
-                                 (.post client #js {:agency "lipsync" :type "processAzureVisemes" :events events :totalDurationMs total-duration-ms})))
+                                 (.post client #js {:agency "lipsync" :type "processAzureVisemes" :events events :totalDurationMs total-duration-ms}))
+                                ([events total-duration-ms options]
+                                 (.post client #js {:agency "lipsync" :type "processAzureVisemes" :events events :totalDurationMs total-duration-ms :options options})))
          :endSpeech (fn []
                       (.post client #js {:agency "lipsync" :type "endSpeech"}))
          :stop (fn []
@@ -846,6 +1025,96 @@
                          (.post client #js {:agency "lipsync" :type "updateConfig" :config config}))
          :dispose (fn []
                     (clear-all-cleanups!)
+                    (.dispose client))}))
+
+(defn create-tts-worker-client [worker host]
+  (let [client (create-worker-client worker host)]
+    #js {:configure (fn [config]
+                      (.configure client tts/agency-name config))
+         :updateConfig (fn [config]
+                         (.post client #js {:agency "tts" :type "updateConfig" :config config}))
+         :startSpeech (fn [text]
+                        (.post client #js {:agency "tts" :type "startSpeech" :text text}))
+         :planText (fn [text]
+                     (.post client #js {:agency "tts" :type "planText" :text text}))
+         :planAzureResponse (fn
+                              ([text response]
+                               (.post client #js {:agency "tts" :type "planAzureResponse" :text text :response response}))
+                              ([text response duration-sec]
+                               (.post client #js {:agency "tts" :type "planAzureResponse" :text text :response response :durationSec duration-sec})))
+         :playbackStarted (fn []
+                            (.post client #js {:agency "tts" :type "playbackStarted"}))
+         :processWordBoundary (fn
+                                ([word] (.post client #js {:agency "tts" :type "processWordBoundary" :word word}))
+                                ([word elapsed-sec]
+                                 (.post client #js {:agency "tts" :type "processWordBoundary" :word word :elapsedSec elapsed-sec})))
+         :finishSpeech (fn []
+                         (.post client #js {:agency "tts" :type "finishSpeech"}))
+         :pause (fn []
+                  (.post client #js {:agency "tts" :type "pause"}))
+         :resume (fn []
+                   (.post client #js {:agency "tts" :type "resume"}))
+         :stop (fn []
+                 (.post client #js {:agency "tts" :type "stop"}))
+         :fail (fn [message]
+                 (.post client #js {:agency "tts" :type "fail" :message message}))
+         :dispose (fn []
+                    (.dispose client))}))
+
+(defn create-transcription-worker-client [worker host]
+  (let [client (create-worker-client worker host)]
+    #js {:configure (fn [config]
+                      (.configure client transcription/agency-name config))
+         :updateConfig (fn [config]
+                         (.post client #js {:agency "transcription" :type "updateConfig" :config config}))
+         :start (fn []
+                  (.post client #js {:agency "transcription" :type "start"}))
+         :stop (fn []
+                 (.post client #js {:agency "transcription" :type "stop"}))
+         :reset (fn []
+                  (.post client #js {:agency "transcription" :type "reset"}))
+         :processResult (fn
+                          ([transcript is-final]
+                           (.post client #js {:agency "transcription" :type "processResult" :transcript transcript :isFinal is-final}))
+                          ([transcript is-final confidence]
+                           (.post client #js {:agency "transcription" :type "processResult" :transcript transcript :isFinal is-final :confidence confidence}))
+                          ([transcript is-final confidence source]
+                           (.post client #js {:agency "transcription" :type "processResult" :transcript transcript :isFinal is-final :confidence confidence :source source})))
+         :processAudioLevel (fn
+                              ([user-level reference-level]
+                               (.post client #js {:agency "transcription" :type "processAudioLevel" :userLevel user-level :referenceLevel reference-level}))
+                              ([user-level reference-level timestamp]
+                               (.post client #js {:agency "transcription" :type "processAudioLevel" :userLevel user-level :referenceLevel reference-level :timestamp timestamp})))
+         :fail (fn [message]
+                 (.post client #js {:agency "transcription" :type "fail" :message message}))
+         :dispose (fn []
+                    (.dispose client))}))
+
+(defn create-conversation-worker-client [worker host]
+  (let [client (create-worker-client worker host)]
+    #js {:configure (fn [config]
+                      (.configure client conversation/agency-name config))
+         :updateConfig (fn [config]
+                         (.post client #js {:agency "conversation" :type "updateConfig" :config config}))
+         :start (fn []
+                  (.post client #js {:agency "conversation" :type "start"}))
+         :stop (fn []
+                 (.post client #js {:agency "conversation" :type "stop"}))
+         :agentStart (fn [text]
+                       (.post client #js {:agency "conversation" :type "agentStart" :text text}))
+         :agentEnd (fn []
+                     (.post client #js {:agency "conversation" :type "agentEnd"}))
+         :userSpeech (fn
+                       ([text is-final]
+                        (.post client #js {:agency "conversation" :type "userSpeech" :text text :isFinal is-final}))
+                       ([text is-final interrupted]
+                        (.post client #js {:agency "conversation" :type "userSpeech" :text text :isFinal is-final :interrupted interrupted})))
+         :processingComplete (fn []
+                               (.post client #js {:agency "conversation" :type "processingComplete"}))
+         :interrupt (fn
+                      ([] (.post client #js {:agency "conversation" :type "interrupt"}))
+                      ([source] (.post client #js {:agency "conversation" :type "interrupt" :source source})))
+         :dispose (fn []
                     (.dispose client))}))
 
 (defn create-hair-worker-client [worker host]

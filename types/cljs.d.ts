@@ -30,6 +30,22 @@ export interface WorkerAgencyHost {
   onVocalCleanupPlan?: (plan: VocalCleanupPlan) => void;
   onLipSyncEvent?: (event: LipSyncEvent) => void;
   onLipSyncCleanupPlan?: (plan: LipSyncCleanupPlan) => void;
+  onTTSEvent?: (event: TTSEvent) => void;
+  onTTSTimeline?: (
+    timeline: TTSTimelineEvent[],
+    vocalTimeline: VocalTimeline,
+    emotionEvents: TTSEmojiTimelineEvent[],
+  ) => void;
+  onTranscriptionEvent?: (event: TranscriptionEvent) => void;
+  onConversationEvent?: (event: ConversationEvent) => void;
+  onAgencyCommand?: (target: string, command: Record<string, unknown>) => void;
+  onTTSCommand?: (command: Record<string, unknown>) => void;
+  onTranscriptionCommand?: (command: Record<string, unknown>) => void;
+  onConversationCommand?: (command: Record<string, unknown>) => void;
+  onVocalCommand?: (command: Record<string, unknown>) => void;
+  onProsodicCommand?: (command: Record<string, unknown>) => void;
+  onGazeCommand?: (command: Record<string, unknown>) => void;
+  onBlinkCommand?: (command: Record<string, unknown>) => void;
   applyHairState?: (
     state: HairState,
     objects: HairObjectRef[],
@@ -545,8 +561,10 @@ export interface LipSyncSnapshot extends LipSyncState {
 export interface LipSyncAzureVisemeEvent {
   visemeId?: number;
   viseme_id?: number;
+  id?: number;
   time?: number;
   audio_offset?: number;
+  audioOffset?: number;
 }
 
 export interface LipSyncEvent {
@@ -567,12 +585,243 @@ export interface LipSyncCleanupPlan {
 export interface LipSyncAgency {
   startSpeech(): boolean;
   processWord(word: string, wordIndex: number, actualDurationMs?: number): string | null;
-  processAzureVisemes(events: LipSyncAzureVisemeEvent[], totalDurationMs?: number): string | null;
+  processAzureVisemes(
+    events: LipSyncAzureVisemeEvent[],
+    totalDurationMs?: number,
+    options?: { wordTimings?: Array<Record<string, unknown>>; visualLeadMs?: number },
+  ): string | null;
   endSpeech(): string | null;
   stop(): boolean;
   updateConfig(config: LipSyncConfig): boolean;
   getState(): LipSyncState;
   getSnapshot(): LipSyncSnapshot;
+  dispose(): void;
+}
+
+export type TTSStatus = 'idle' | 'loading' | 'speaking' | 'paused' | 'error';
+
+export interface TTSAgencyConfig {
+  engine?: 'webSpeech' | 'sapi' | 'azure' | 'livekit' | string;
+  rate?: number;
+  pitch?: number;
+  volume?: number;
+  voiceName?: string;
+  lang?: string;
+  lipsyncIntensity?: number;
+  jawScale?: number;
+  azureVisualLeadMs?: number;
+}
+
+export interface TTSAzureVisemeEvent {
+  visemeId?: number;
+  viseme_id?: number;
+  id?: number;
+  time?: number;
+  audio_offset?: number;
+  audioOffset?: number;
+}
+
+export interface TTSWordBoundary {
+  word: string;
+  start_time?: number;
+  end_time?: number;
+  startSec?: number;
+  endSec?: number;
+  start?: number;
+  end?: number;
+}
+
+export interface TTSAzureResponse {
+  visemes?: TTSAzureVisemeEvent[];
+  word_boundaries?: TTSWordBoundary[];
+  wordBoundaries?: TTSWordBoundary[];
+  words?: TTSWordBoundary[];
+  duration?: number;
+}
+
+export interface TTSWordTimelineEvent {
+  type: 'WORD';
+  word: string;
+  index: number;
+  offsetMs: number;
+}
+
+export interface TTSVisemeTimelineEvent {
+  type: 'VISEME';
+  visemeId: number;
+  offsetMs: number;
+  durMs: number;
+}
+
+export interface TTSEmojiTimelineEvent {
+  type: 'EMOJI';
+  emoji: string;
+  offsetMs: number;
+}
+
+export type TTSTimelineEvent =
+  | TTSWordTimelineEvent
+  | TTSVisemeTimelineEvent
+  | TTSEmojiTimelineEvent;
+
+export interface TTSPlan {
+  utteranceId: string;
+  text: string;
+  timeline: TTSTimelineEvent[];
+  vocalTimeline: VocalTimeline;
+  emotionEvents: TTSEmojiTimelineEvent[];
+}
+
+export interface TTSAgencyState {
+  status: TTSStatus;
+  currentText?: string | null;
+  currentTimeline?: TTSTimelineEvent[];
+  currentVoice?: unknown | null;
+  utteranceId?: string | null;
+  error?: string | null;
+}
+
+export interface TTSSnapshot extends TTSAgencyState {
+  wordIndex: number;
+  config: Required<TTSAgencyConfig>;
+  eventCount: number;
+  lastUpdatedTime: number | null;
+}
+
+export interface TTSEvent {
+  type: string;
+  timestamp: number;
+  utteranceId?: string;
+  text?: string;
+  word?: string;
+  wordIndex?: number;
+  elapsedSec?: number;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface TTSAgency {
+  updateConfig(config: TTSAgencyConfig): boolean;
+  startSpeech(text: string): string;
+  planText(text: string): TTSPlan;
+  planAzureResponse(text: string, response: TTSAzureResponse, durationSec?: number): TTSPlan;
+  playbackStarted(): boolean;
+  processWordBoundary(word: string, elapsedSec?: number): boolean;
+  finishSpeech(): boolean;
+  pause(): boolean;
+  resume(): boolean;
+  stop(): boolean;
+  fail(message: string): boolean;
+  getState(): TTSAgencyState;
+  getSnapshot(): TTSSnapshot;
+  dispose(): void;
+}
+
+export interface TranscriptionConfig {
+  language?: string;
+  continuous?: boolean;
+  interimResults?: boolean;
+  echoSuppression?: boolean;
+  interruptionThreshold?: number;
+  referenceRatio?: number;
+  releaseThreshold?: number;
+  releaseMs?: number;
+}
+
+export interface TranscriptionAgencyState {
+  status: 'idle' | 'listening' | 'error';
+  isListening: boolean;
+  interimTranscript: string;
+  finalTranscript: string;
+  isInterrupted: boolean;
+  interruptionSource: string | null;
+}
+
+export interface TranscriptionSnapshot extends TranscriptionAgencyState {
+  lastTranscript: string;
+  lastConfidence: number | null;
+  lastUserLevel: number;
+  lastReferenceLevel: number;
+  lastInterruptionTime: number | null;
+  config: Required<TranscriptionConfig>;
+  eventCount: number;
+  lastUpdatedTime: number | null;
+}
+
+export interface TranscriptionEvent {
+  type: string;
+  timestamp: number;
+  transcript?: string;
+  confidence?: number;
+  source?: string;
+  interrupted?: boolean;
+  userLevel?: number;
+  referenceLevel?: number;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface TranscriptionAgency {
+  updateConfig(config: TranscriptionConfig): boolean;
+  start(): boolean;
+  stop(): boolean;
+  reset(): boolean;
+  processResult(transcript: string, isFinal: boolean, confidence?: number, source?: string): boolean;
+  processAudioLevel(userLevel: number, referenceLevel: number, timestamp?: number): boolean;
+  fail(message: string): boolean;
+  getState(): TranscriptionAgencyState;
+  getSnapshot(): TranscriptionSnapshot;
+  dispose(): void;
+}
+
+export type ConversationStateValue = 'idle' | 'agentSpeaking' | 'interrupted' | 'userSpeaking' | 'processing';
+
+export interface ConversationAgencyConfig {
+  autoListen?: boolean;
+  useGaze?: boolean;
+  useProsody?: boolean;
+  useBlink?: boolean;
+  interruptionEnabled?: boolean;
+}
+
+export interface ConversationAgencyState {
+  state: ConversationStateValue;
+  turnId: number;
+  isRunning: boolean;
+  lastAgentText: string | null;
+  lastUserText: string | null;
+  pendingTranscript: string | null;
+  interrupted: boolean;
+  interruptionSource: string | null;
+}
+
+export interface ConversationSnapshot extends ConversationAgencyState {
+  config: Required<ConversationAgencyConfig>;
+  eventCount: number;
+  lastUpdatedTime: number | null;
+}
+
+export interface ConversationEvent {
+  type: string;
+  timestamp: number;
+  turnId?: number;
+  text?: string;
+  source?: string;
+  interrupted?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ConversationAgency {
+  updateConfig(config: ConversationAgencyConfig): boolean;
+  start(): boolean;
+  stop(): boolean;
+  agentStart(text: string): boolean;
+  agentEnd(): boolean;
+  userSpeech(text: string, isFinal: boolean, interrupted?: boolean): boolean;
+  processingComplete(): boolean;
+  interrupt(source?: string): boolean;
+  getState(): ConversationAgencyState;
+  getSnapshot(): ConversationSnapshot;
   dispose(): void;
 }
 
@@ -808,10 +1057,55 @@ export interface VocalWorkerClient {
 export interface LipSyncWorkerClient {
   startSpeech(): void;
   processWord(word: string, wordIndex: number, actualDurationMs?: number): void;
-  processAzureVisemes(events: LipSyncAzureVisemeEvent[], totalDurationMs?: number): void;
+  processAzureVisemes(
+    events: LipSyncAzureVisemeEvent[],
+    totalDurationMs?: number,
+    options?: { wordTimings?: Array<Record<string, unknown>>; visualLeadMs?: number },
+  ): void;
   endSpeech(): void;
   stop(): void;
   updateConfig(config: LipSyncConfig): void;
+  dispose(): void;
+}
+
+export interface TTSWorkerClient {
+  configure(config: TTSAgencyConfig): void;
+  updateConfig(config: TTSAgencyConfig): void;
+  startSpeech(text: string): void;
+  planText(text: string): void;
+  planAzureResponse(text: string, response: TTSAzureResponse, durationSec?: number): void;
+  playbackStarted(): void;
+  processWordBoundary(word: string, elapsedSec?: number): void;
+  finishSpeech(): void;
+  pause(): void;
+  resume(): void;
+  stop(): void;
+  fail(message: string): void;
+  dispose(): void;
+}
+
+export interface TranscriptionWorkerClient {
+  configure(config: TranscriptionConfig): void;
+  updateConfig(config: TranscriptionConfig): void;
+  start(): void;
+  stop(): void;
+  reset(): void;
+  processResult(transcript: string, isFinal: boolean, confidence?: number, source?: string): void;
+  processAudioLevel(userLevel: number, referenceLevel: number, timestamp?: number): void;
+  fail(message: string): void;
+  dispose(): void;
+}
+
+export interface ConversationWorkerClient {
+  configure(config: ConversationAgencyConfig): void;
+  updateConfig(config: ConversationAgencyConfig): void;
+  start(): void;
+  stop(): void;
+  agentStart(text: string): void;
+  agentEnd(): void;
+  userSpeech(text: string, isFinal: boolean, interrupted?: boolean): void;
+  processingComplete(): void;
+  interrupt(source?: string): void;
   dispose(): void;
 }
 
@@ -838,15 +1132,21 @@ export interface LatticeworkCljsApi {
   createHairAgency(config?: HairAgencyConfig, host?: WorkerAgencyHost): HairAgency;
   createLipSyncAgency(config?: LipSyncConfig, host?: WorkerAgencyHost): LipSyncAgency;
   createProsodicAgency(config?: ProsodicConfig, host?: WorkerAgencyHost): ProsodicAgency;
+  createTranscriptionAgency(config?: TranscriptionConfig, host?: WorkerAgencyHost): TranscriptionAgency;
+  createTTSAgency(config?: TTSAgencyConfig, host?: WorkerAgencyHost): TTSAgency;
+  createConversationAgency(config?: ConversationAgencyConfig, host?: WorkerAgencyHost): ConversationAgency;
   createVocalAgency(config?: VocalConfig, host?: WorkerAgencyHost): VocalAgency;
   createAgencyWorkerClient(worker: Worker, host?: WorkerAgencyHost): WorkerAgencyClient;
   createAnimationWorkerClient(worker: Worker, host?: WorkerAgencyHost): AnimationWorkerClient;
   createBlinkWorkerClient(worker: Worker, host?: WorkerAgencyHost): BlinkWorkerClient;
+  createConversationWorkerClient(worker: Worker, host?: WorkerAgencyHost): ConversationWorkerClient;
   createEyeHeadTrackingWorkerClient(worker: Worker, host?: WorkerAgencyHost): EyeHeadTrackingWorkerClient;
   createGazeWorkerClient(worker: Worker, host?: WorkerAgencyHost): GazeWorkerClient;
   createHairWorkerClient(worker: Worker, host?: WorkerAgencyHost): HairWorkerClient;
   createLipSyncWorkerClient(worker: Worker, host?: WorkerAgencyHost): LipSyncWorkerClient;
   createProsodicWorkerClient(worker: Worker, host?: WorkerAgencyHost): ProsodicWorkerClient;
+  createTranscriptionWorkerClient(worker: Worker, host?: WorkerAgencyHost): TranscriptionWorkerClient;
+  createTTSWorkerClient(worker: Worker, host?: WorkerAgencyHost): TTSWorkerClient;
   createVocalWorkerClient(worker: Worker, host?: WorkerAgencyHost): VocalWorkerClient;
 }
 
@@ -885,6 +1185,21 @@ export declare function createProsodicAgency(
   host?: WorkerAgencyHost,
 ): ProsodicAgency;
 
+export declare function createTranscriptionAgency(
+  config?: TranscriptionConfig,
+  host?: WorkerAgencyHost,
+): TranscriptionAgency;
+
+export declare function createTTSAgency(
+  config?: TTSAgencyConfig,
+  host?: WorkerAgencyHost,
+): TTSAgency;
+
+export declare function createConversationAgency(
+  config?: ConversationAgencyConfig,
+  host?: WorkerAgencyHost,
+): ConversationAgency;
+
 export declare function createVocalAgency(
   config?: VocalConfig,
   host?: WorkerAgencyHost,
@@ -904,6 +1219,11 @@ export declare function createBlinkWorkerClient(
   worker: Worker,
   host?: WorkerAgencyHost,
 ): BlinkWorkerClient;
+
+export declare function createConversationWorkerClient(
+  worker: Worker,
+  host?: WorkerAgencyHost,
+): ConversationWorkerClient;
 
 export declare function createEyeHeadTrackingWorkerClient(
   worker: Worker,
@@ -929,6 +1249,16 @@ export declare function createProsodicWorkerClient(
   worker: Worker,
   host?: WorkerAgencyHost,
 ): ProsodicWorkerClient;
+
+export declare function createTranscriptionWorkerClient(
+  worker: Worker,
+  host?: WorkerAgencyHost,
+): TranscriptionWorkerClient;
+
+export declare function createTTSWorkerClient(
+  worker: Worker,
+  host?: WorkerAgencyHost,
+): TTSWorkerClient;
 
 export declare function createVocalWorkerClient(
   worker: Worker,

@@ -42,6 +42,9 @@ import {
   createHairAgency,
   createLipSyncAgency,
   createProsodicAgency,
+  createTranscriptionAgency,
+  createTTSAgency,
+  createConversationAgency,
   createVocalAgency,
 } from '@lovelace_lol/polyester/cljs';
 ```
@@ -69,11 +72,14 @@ the stable TypeScript package until the migration is complete.
 - Hair
 - Lipsync
 - Prosodic speech gestures
+- TTS planning and Azure timing normalization
+- Transcription state and interruption detection
+- Conversation turn orchestration
 - Vocal timeline planning
 
 Remaining transition work is tracked from the Latticework umbrella issue:
-TTS, transcription, conversation orchestration, and an EmotionExpression agency
-scaffold.
+deeper agency parity, worker integration hardening, and an EmotionExpression
+agency scaffold.
 
 ## A/B Testing Strategy
 

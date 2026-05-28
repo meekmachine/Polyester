@@ -53,6 +53,42 @@
    10 [9 4]
    11 [1 7]})
 
+(def azure-duplicate-window-ms 35)
+(def diphthong-min-duration-ms 85)
+(def diphthong-secondary-min-ms 38)
+
+(def azure-min-duration-ms
+  {"silence" 0
+   "bilabial" 55
+   "vowel" 120
+   "fricative" 80
+   "tongue" 80
+   "liquid" 90
+   "glide" 100
+   "default" 85})
+
+(def azure-max-duration-ms
+  {"silence" 0
+   "bilabial" 110
+   "vowel" 220
+   "fricative" 150
+   "tongue" 140
+   "liquid" 160
+   "glide" 180
+   "default" 150})
+
+(def azure-max-overlap-ms
+  {"silence" 0
+   "bilabial" 8
+   "vowel" 90
+   "fricative" 45
+   "tongue" 45
+   "liquid" 60
+   "glide" 65
+   "default" 45})
+
+(def azure-vowels #{0 1 4 5 7 9 14})
+
 (defn- now []
   (.round js/Math (protocol/now-ms)))
 
@@ -121,6 +157,102 @@
   {:visemeId (int (protocol/clamp 0 14 (number-or (:visemeId event) 0)))
    :offsetMs (max 0 (number-or (:offsetMs event) 0))
    :durationMs (max 0 (number-or (:durationMs event) 0))})
+
+(defn- normalize-provider-time-sec [event]
+  (let [explicit-time (:time event)
+        audio-offset (or (:audio_offset event) (:audioOffset event))]
+    (cond
+      (finite-number? explicit-time) explicit-time
+      (and (finite-number? audio-offset) (> audio-offset 10000)) (/ audio-offset 10000000)
+      (finite-number? audio-offset) audio-offset
+      :else 0)))
+
+(defn- word-start-sec [word]
+  (number-or (or (:start_time word) (:startSec word) (:start word)) 0))
+
+(defn- word-end-sec [word]
+  (number-or (or (:end_time word) (:endSec word) (:end word)) (word-start-sec word)))
+
+(defn- find-word-at-time [time-sec word-timings]
+  (first
+   (filter
+    (fn [word]
+      (and (>= time-sec (- (word-start-sec word) 0.02))
+           (<= time-sec (+ (word-end-sec word) 0.02))))
+    (or word-timings []))))
+
+(defn- normalized-word [word]
+  (str/replace (str/lower-case (or (:word word) "")) #"[^a-z]" ""))
+
+(defn- long-e-word? [word]
+  (or (boolean (re-find #"(ee|ea|ie|ei)" word))
+      (contains? #{"we" "me" "be" "he" "she" "see"} word)
+      (str/ends-with? word "y")))
+
+(defn- rounded-back-word? [text]
+  (boolean (re-find #"(oo|ew|ue|ui|ough|ow|oa|oe|ose|ole|old|own|o)$" text)))
+
+(defn- word-progress [event-time-sec word]
+  (let [start (word-start-sec word)
+        end (word-end-sec word)
+        duration (max 0.001 (- end start))]
+    (protocol/clamp 0 1 (/ (- event-time-sec start) duration))))
+
+(defn- should-use-rounded-back? [event-time-sec word]
+  (let [text (normalized-word word)]
+    (and (seq text)
+         (rounded-back-word? text)
+         (or (nil? word)
+             (>= (word-progress event-time-sec word) 0.35)))))
+
+(defn- should-use-dental-th? [event-time-sec word]
+  (let [text (normalized-word word)]
+    (and (seq text)
+         (str/includes? text "th")
+         word
+         (let [progress (word-progress event-time-sec word)]
+           (loop [index (str/index-of text "th")]
+             (when index
+               (let [th-progress (if (<= (count text) 2)
+                                   0
+                                   (/ index (max 1 (- (count text) 2))))
+                     starts-word? (zero? index)
+                     ends-word? (>= index (- (count text) 2))]
+                 (or (and starts-word? (<= progress 0.45))
+                     (and ends-word? (>= progress 0.55))
+                     (<= (js/Math.abs (- progress th-progress)) 0.22)
+                     (recur (str/index-of text "th" (inc index)))))))))))
+
+(defn- azure-viseme-class [provider-id canonical-id]
+  (cond
+    (= provider-id 0) "silence"
+    (= canonical-id 2) "bilabial"
+    (= canonical-id 14) "glide"
+    (contains? azure-vowels canonical-id) "vowel"
+    (contains? #{3 6 11 13} canonical-id) "fricative"
+    (contains? #{8 12} canonical-id) "tongue"
+    (= canonical-id 10) "liquid"
+    :else "default"))
+
+(defn- refine-azure-viseme [provider-id canonical-id event-time-sec word]
+  (cond
+    (= provider-id 0) nil
+    (and (= provider-id 6) (long-e-word? (normalized-word word))) 4
+    (and (= provider-id 4) (should-use-rounded-back? event-time-sec word)) 14
+    (and (= provider-id 19) (should-use-dental-th? event-time-sec word)) 13
+    :else canonical-id))
+
+(defn- clamp-duration [duration-ms min-ms max-ms remaining-ms]
+  (max 0
+       (.round js/Math
+               (min (max duration-ms min-ms)
+                    max-ms
+                    remaining-ms))))
+
+(defn- apply-visual-lead [offset-ms visual-lead-ms]
+  (if (and (finite-number? visual-lead-ms) (pos? visual-lead-ms))
+    (max 0 (- offset-ms visual-lead-ms))
+    offset-ms))
 
 (defn scale-timeline-to-fit [timeline target-duration-ms]
   (let [estimated-duration (reduce + (map :durationMs timeline))]
@@ -245,39 +377,88 @@
 (defn- normalize-azure-visemes [events]
   (->> (or events [])
        (map (fn [event]
-              {:providerId (int (number-or (or (:visemeId event) (:viseme_id event)) 0))
-               :time (number-or (or (:time event) (:audio_offset event)) 0)}))
+              {:providerId (int (number-or (or (:visemeId event) (:viseme_id event) (:id event)) 0))
+               :time (normalize-provider-time-sec event)}))
        (filter #(finite-number? (:time %)))
        (sort-by :time)
        vec))
 
 (defn- azure-duration-ms [current next-event total-duration-ms]
   (let [offset-ms (max 0 (.round js/Math (* (:time current) 1000)))
-        raw-span-ms (if next-event
-                      (max 0 (.round js/Math (* (- (:time next-event) (:time current)) 1000)))
-                      100)
         remaining-ms (if (finite-number? total-duration-ms)
                        (max 0 (- total-duration-ms offset-ms))
-                       js/Infinity)]
-    (max 50 (min remaining-ms raw-span-ms 220))))
+                       js/Infinity)
+        class-name (:className current)
+        fallback-ms (if (= class-name "silence")
+                      (get azure-max-duration-ms "silence")
+                      (get azure-min-duration-ms class-name 85))
+        raw-span-ms (if next-event
+                      (max 0 (.round js/Math (* (- (:time next-event) (:time current)) 1000)))
+                      (min fallback-ms remaining-ms))]
+    (if (= class-name "silence")
+      (clamp-duration raw-span-ms 0 (get azure-max-duration-ms "silence") remaining-ms)
+      (let [next-is-closure? (= (:className next-event) "bilabial")
+            overlap-ms (if next-is-closure? 8 (get azure-max-overlap-ms class-name 45))
+            desired-ms (max raw-span-ms (get azure-min-duration-ms class-name 85))
+            max-ms (min (get azure-max-duration-ms class-name 150)
+                        (+ raw-span-ms overlap-ms))]
+        (clamp-duration desired-ms 1 max-ms remaining-ms)))))
 
-(defn- push-azure-event [timeline provider-id canonical-id offset-ms duration-ms]
+(defn- push-azure-event [timeline provider-id canonical-id offset-ms duration-ms visual-lead-ms]
   (if (or (= provider-id 0) (<= duration-ms 0))
     timeline
-    (if-let [[first-viseme second-viseme] (get diphthong-targets provider-id)]
-      (let [second-offset (min (+ offset-ms duration-ms -38)
+    (if (and (get diphthong-targets provider-id)
+             (>= duration-ms diphthong-min-duration-ms))
+      (let [[first-viseme second-viseme] (get diphthong-targets provider-id)
+            second-offset (min (+ offset-ms duration-ms (- diphthong-secondary-min-ms))
                                (+ offset-ms (* duration-ms 0.55)))
-            first-duration (max 38 (min duration-ms (+ (- second-offset offset-ms) (* duration-ms 0.25))))
-            second-duration (max 38 (- (+ offset-ms duration-ms) second-offset))]
+            first-duration (max diphthong-secondary-min-ms
+                                (min duration-ms
+                                     (+ (- second-offset offset-ms) (* duration-ms 0.25))))
+            second-duration (max diphthong-secondary-min-ms
+                                 (- (+ offset-ms duration-ms) second-offset))]
         (conj timeline
-              {:visemeId first-viseme :offsetMs (.round js/Math offset-ms) :durationMs (.round js/Math first-duration)}
-              {:visemeId second-viseme :offsetMs (.round js/Math second-offset) :durationMs (.round js/Math second-duration)}))
+              {:visemeId first-viseme
+               :offsetMs (.round js/Math (apply-visual-lead offset-ms visual-lead-ms))
+               :durationMs (.round js/Math first-duration)}
+              {:visemeId second-viseme
+               :offsetMs (.round js/Math (apply-visual-lead second-offset visual-lead-ms))
+               :durationMs (.round js/Math second-duration)}))
       (conj timeline {:visemeId canonical-id
-                      :offsetMs (.round js/Math offset-ms)
+                      :offsetMs (.round js/Math (apply-visual-lead offset-ms visual-lead-ms))
                       :durationMs (.round js/Math duration-ms)}))))
 
-(defn azure-visemes-to-timeline [events total-duration-ms]
-  (let [events (normalize-azure-visemes events)]
+(defn- mapped-azure-events [events options]
+  (loop [remaining (normalize-azure-visemes events)
+         mapped []]
+    (if (empty? remaining)
+      mapped
+      (let [event (first remaining)
+            provider-id (:providerId event)
+            base-canonical (get azure-to-canonical provider-id 2)
+            canonical-id (refine-azure-viseme
+                          provider-id
+                          base-canonical
+                          (:time event)
+                          (find-word-at-time (:time event) (:wordTimings options)))
+            time-ms (* (:time event) 1000)
+            previous (last mapped)]
+        (if (nil? canonical-id)
+          (recur (rest remaining) mapped)
+          (if (and previous
+                   (= (:canonicalId previous) canonical-id)
+                   (< (js/Math.abs (- time-ms (* (:time previous) 1000))) azure-duplicate-window-ms))
+            (recur (rest remaining) mapped)
+            (recur (rest remaining)
+                   (conj mapped (assoc event
+                                       :canonicalId canonical-id
+                                       :className (azure-viseme-class provider-id canonical-id))))))))))
+
+(defn azure-visemes-to-timeline
+  ([events total-duration-ms] (azure-visemes-to-timeline events total-duration-ms nil))
+  ([events total-duration-ms options]
+   (let [events (mapped-azure-events events (or options {}))
+         visual-lead-ms (:visualLeadMs options)]
     (loop [index 0
            timeline []]
       (if (>= index (count events))
@@ -285,14 +466,14 @@
         (let [event (nth events index)
               next-event (when (< (inc index) (count events)) (nth events (inc index)))
               provider-id (:providerId event)
-              canonical-id (get azure-to-canonical provider-id 2)
+              canonical-id (:canonicalId event)
               offset-ms (max 0 (.round js/Math (* (:time event) 1000)))
               duration-ms (azure-duration-ms event next-event total-duration-ms)]
           (recur (inc index)
-                 (push-azure-event timeline provider-id canonical-id offset-ms duration-ms)))))))
+                 (push-azure-event timeline provider-id canonical-id offset-ms duration-ms visual-lead-ms))))))))
 
-(defn process-azure-visemes! [state events total-duration-ms snippet-name]
-  (let [timeline (azure-visemes-to-timeline events total-duration-ms)
+(defn process-azure-visemes! [state events total-duration-ms snippet-name options]
+  (let [timeline (azure-visemes-to-timeline events total-duration-ms options)
         snippet-name (or snippet-name (build-azure-snippet-name))
         config (:config @state)]
     (if (empty? timeline)
@@ -364,7 +545,7 @@
   (case (:type command)
     "startSpeech" (start-speech! state)
     "processWord" (process-word! state (:word command) (:wordIndex command) (:actualDurationMs command) (:snippetName command))
-    "processAzureVisemes" (process-azure-visemes! state (:events command) (:totalDurationMs command) (:snippetName command))
+    "processAzureVisemes" (process-azure-visemes! state (:events command) (:totalDurationMs command) (:snippetName command) (:options command))
     "endSpeech" (end-speech! state)
     "stop" (stop! state)
     "updateConfig" (update-config! state (:config command))
