@@ -45,6 +45,27 @@ describe('canonical viseme mapping', () => {
     expect(uniqueVisemes).toEqual(new Set(Object.values(CANONICAL_VISEMES)));
   });
 
+  it('normalizes Azure timing schema variants from buffered and streamed paths', () => {
+    const timeline = azureVisemesToTimeline([
+      { id: 6, audioOffset: 1_000_000 },
+      { visemeId: 19, time: 0.24 },
+      { viseme_id: 21, audio_offset: 0.42 },
+    ], 700, {
+      wordTimings: [
+        { word: 'we', start: 0.05, end: 0.16 },
+        { word: 'think', startSec: 0.2, endSec: 0.34 },
+        { word: 'mom', start_time: 0.38, end_time: 0.52 },
+      ],
+    });
+
+    expect(timeline.map((event) => event.visemeId)).toEqual([
+      CANONICAL_VISEMES.EE,
+      CANONICAL_VISEMES.Th,
+      CANONICAL_VISEMES.B_M_P,
+    ]);
+    expect(timeline.map((event) => event.offsetMs)).toEqual([100, 240, 420]);
+  });
+
   it('extends dense Azure segments so vowels and consonants do not chatter at raw boundary speed', () => {
     const timeline = azureVisemesToTimeline([
       { viseme_id: 2, audio_offset: 0 },

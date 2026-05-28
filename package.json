@@ -36,7 +36,7 @@
     "dev:cljs": "shadow-cljs watch npm worker",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-blink.mjs",
+    "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-blink.mjs && node scripts/smoke-cljs-azure-parity.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepare": "npm run build",
@@ -52,6 +52,7 @@
   "devDependencies": {
     "@types/node": "^25.0.9",
     "@vitest/coverage-v8": "^3.2.4",
+    "esbuild": "^0.27.4",
     "shadow-cljs": "^3.4.11",
     "tsup": "^8.0.0",
     "typescript": "^5.9.3",

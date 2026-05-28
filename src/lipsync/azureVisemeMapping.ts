@@ -14,8 +14,10 @@ import { CANONICAL_VISEMES } from './canonicalVisemes';
 export interface AzureVisemeLike {
   visemeId?: number;
   viseme_id?: number;
+  id?: number;
   time?: number; // seconds
   audio_offset?: number; // seconds
+  audioOffset?: number; // seconds or Azure 100ns ticks
 }
 
 export interface AzureWordTimingLike {
@@ -24,6 +26,8 @@ export interface AzureWordTimingLike {
   end_time?: number; // seconds
   startSec?: number; // seconds
   endSec?: number; // seconds
+  start?: number; // seconds
+  end?: number; // seconds
 }
 
 export interface AzureTimelineOptions {
@@ -82,8 +86,8 @@ export function normalizeAzureVisemes(visemes: AzureVisemeLike[]): NormalizedAzu
 
   return visemes
     .map((v) => ({
-      visemeId: v.visemeId ?? v.viseme_id ?? 0,
-      time: v.time ?? v.audio_offset ?? 0,
+      visemeId: v.visemeId ?? v.viseme_id ?? v.id ?? 0,
+      time: normalizeProviderTimeSec(v),
     }))
     .filter((v) => Number.isFinite(v.time))
     .sort((a, b) => a.time - b.time);
@@ -161,12 +165,25 @@ function clampDuration(durationMs: number, minMs: number, maxMs: number, remaini
   return Math.max(0, Math.round(clamped));
 }
 
+function normalizeProviderTimeSec(event: AzureVisemeLike): number {
+  if (typeof event.time === 'number' && Number.isFinite(event.time)) return event.time;
+
+  const audioOffset = event.audio_offset ?? event.audioOffset;
+  if (typeof audioOffset !== 'number' || !Number.isFinite(audioOffset)) return 0;
+
+  return audioOffset > 10000 ? audioOffset / 10_000_000 : audioOffset;
+}
+
 function wordStartSec(word: AzureWordTimingLike): number {
-  return typeof word.start_time === 'number' ? word.start_time : word.startSec ?? 0;
+  return typeof word.start_time === 'number'
+    ? word.start_time
+    : word.startSec ?? word.start ?? 0;
 }
 
 function wordEndSec(word: AzureWordTimingLike): number {
-  return typeof word.end_time === 'number' ? word.end_time : word.endSec ?? wordStartSec(word);
+  return typeof word.end_time === 'number'
+    ? word.end_time
+    : word.endSec ?? word.end ?? wordStartSec(word);
 }
 
 function findWordAtTime(timeSec: number, wordTimings?: AzureWordTimingLike[]): AzureWordTimingLike | undefined {
