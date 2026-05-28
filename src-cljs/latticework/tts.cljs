@@ -23,6 +23,7 @@
    :currentTimeline []
    :currentVoice nil
    :utteranceId nil
+   :cancelledUtteranceIds []
    :wordIndex 0
    :error nil
    :config default-config
@@ -50,7 +51,7 @@
   @state)
 
 (defn tts-state [state]
-  (select-keys @state [:status :currentText :currentTimeline :currentVoice :utteranceId :error]))
+  (select-keys @state [:status :currentText :currentTimeline :currentVoice :utteranceId :cancelledUtteranceIds :error]))
 
 (defn- state-output [state]
   (protocol/emit-state agency-name @state))
@@ -60,9 +61,10 @@
    :agency agency-name
    :event (assoc event :timestamp (now))})
 
-(defn- timeline-output [timeline vocal-timeline emotion-events]
+(defn- timeline-output [utterance-id timeline vocal-timeline emotion-events]
   {:type "ttsTimeline"
    :agency agency-name
+   :utteranceId utterance-id
    :timeline timeline
    :vocalTimeline vocal-timeline
    :emotionEvents emotion-events})
@@ -86,6 +88,31 @@
 
 (defn- next-utterance-id []
   (str "utt_" (now) "_" (.floor js/Math (* (.random js/Math) 100000))))
+
+(def max-cancelled-utterances 12)
+
+(defn- remember-cancelled [ids utterance-id]
+  (if utterance-id
+    (->> (conj (vec (or ids [])) utterance-id)
+         distinct
+         (take-last max-cancelled-utterances)
+         vec)
+    (vec (or ids []))))
+
+(defn- cancelled-utterance? [state utterance-id]
+  (boolean (some #(= % utterance-id) (:cancelledUtteranceIds @state))))
+
+(defn- stale-utterance? [state utterance-id]
+  (or (nil? utterance-id)
+      (cancelled-utterance? state utterance-id)
+      (not= utterance-id (:utteranceId @state))))
+
+(defn- stale-utterance-result [state event-type utterance-id]
+  (result false [(event-output {:type "STALE_UTTERANCE_IGNORED"
+                                :eventType event-type
+                                :utteranceId utterance-id
+                                :currentUtteranceId (:utteranceId @state)})
+                 (state-output state)]))
 
 (defn- emoji-regex []
   (js/RegExp.
@@ -217,6 +244,7 @@
         timeline (build-local-timeline clean-text (:emojis parsed) (:rate config))
         emotion-events (filterv #(= "EMOJI" (:type %)) timeline)
         vocal-timeline {:name (str "tts_text_" utterance-id)
+                        :utteranceId utterance-id
                         :text clean-text
                         :visemes visemes
                         :wordTimings word-timings
@@ -231,8 +259,9 @@
                                    :currentText clean-text
                                    :currentTimeline timeline
                                    :error nil))
-    (result plan [(timeline-output timeline vocal-timeline emotion-events)
+    (result plan [(timeline-output utterance-id timeline vocal-timeline emotion-events)
                   (command-output "vocal" {:type "startTimeline"
+                                           :utteranceId utterance-id
                                            :timeline vocal-timeline
                                            :startOn "playbackStart"})
                   (event-output {:type "TEXT_PLANNED"
@@ -265,6 +294,7 @@
                                        (emoji-events clean-text (:emojis parsed) total-duration-ms))))
         emotion-events (filterv #(= "EMOJI" (:type %)) timeline)
         vocal-timeline {:name (str "tts_azure_" utterance-id)
+                        :utteranceId utterance-id
                         :text clean-text
                         :visemes canonical-visemes
                         :wordTimings word-timings
@@ -279,8 +309,9 @@
                                    :currentText clean-text
                                    :currentTimeline timeline
                                    :error nil))
-    (result plan [(timeline-output timeline vocal-timeline emotion-events)
+    (result plan [(timeline-output utterance-id timeline vocal-timeline emotion-events)
                   (command-output "vocal" {:type "startTimeline"
+                                           :utteranceId utterance-id
                                            :timeline vocal-timeline
                                            :startOn "playbackStart"})
                   (event-output {:type "AZURE_RESPONSE_PLANNED"
@@ -303,47 +334,71 @@
                                          :text text})
                           (state-output state)])))
 
-(defn playback-started! [state]
-  (update-state! state #(assoc % :status "speaking" :wordIndex 0))
-  (result true [(event-output {:type "PLAYBACK_STARTED"
-                               :utteranceId (:utteranceId @state)})
-                (command-output "prosodic" {:type "startTalking"})
-                (state-output state)]))
+(defn playback-started! [state requested-utterance-id]
+  (let [utterance-id (or requested-utterance-id (:utteranceId @state))]
+    (if (stale-utterance? state utterance-id)
+      (stale-utterance-result state "PLAYBACK_STARTED" utterance-id)
+      (do
+        (update-state! state #(assoc % :status "speaking" :wordIndex 0))
+        (result true [(event-output {:type "PLAYBACK_STARTED"
+                                     :utteranceId utterance-id})
+                      (command-output "prosodic" {:type "startTalking"
+                                                  :utteranceId utterance-id})
+                      (state-output state)])))))
 
-(defn process-word-boundary! [state word elapsed-sec]
-  (let [word-index (:wordIndex @state)]
-    (update-state! state #(update % :wordIndex inc))
-    (result true [(event-output {:type "WORD_BOUNDARY"
-                                 :utteranceId (:utteranceId @state)
-                                 :word word
-                                 :wordIndex word-index
-                                 :elapsedSec elapsed-sec})
-                  (command-output "vocal" {:type "onWordBoundary"
-                                           :word word
-                                           :wordIndex word-index
-                                           :observedElapsedSec elapsed-sec})
-                  (command-output "prosodic" {:type "pulse"
-                                              :wordIndex word-index})
-                  (state-output state)])))
+(defn process-word-boundary! [state word elapsed-sec requested-utterance-id]
+  (let [utterance-id (or requested-utterance-id (:utteranceId @state))]
+    (if (stale-utterance? state utterance-id)
+      (stale-utterance-result state "WORD_BOUNDARY" utterance-id)
+      (let [word-index (:wordIndex @state)]
+        (update-state! state #(update % :wordIndex inc))
+        (result true [(event-output {:type "WORD_BOUNDARY"
+                                     :utteranceId utterance-id
+                                     :word word
+                                     :wordIndex word-index
+                                     :elapsedSec elapsed-sec})
+                      (command-output "vocal" {:type "onWordBoundary"
+                                               :utteranceId utterance-id
+                                               :word word
+                                               :wordIndex word-index
+                                               :observedElapsedSec elapsed-sec})
+                      (command-output "prosodic" {:type "pulse"
+                                                  :utteranceId utterance-id
+                                                  :wordIndex word-index})
+                      (state-output state)])))))
 
-(defn finish-speech! [state]
-  (update-state! state #(assoc % :status "idle" :wordIndex 0))
-  (result true [(event-output {:type "SPEECH_FINISHED"
-                               :utteranceId (:utteranceId @state)})
-                (command-output "vocal" {:type "stop"})
-                (command-output "prosodic" {:type "stopTalking"})
-                (state-output state)]))
+(defn finish-speech! [state requested-utterance-id]
+  (let [utterance-id (or requested-utterance-id (:utteranceId @state))]
+    (if (stale-utterance? state utterance-id)
+      (stale-utterance-result state "SPEECH_FINISHED" utterance-id)
+      (do
+        (update-state! state #(assoc % :status "idle"
+                                      :utteranceId nil
+                                      :wordIndex 0))
+        (result true [(event-output {:type "SPEECH_FINISHED"
+                                     :utteranceId utterance-id})
+                      (command-output "vocal" {:type "stop"
+                                               :utteranceId utterance-id})
+                      (command-output "prosodic" {:type "stopTalking"
+                                                  :utteranceId utterance-id})
+                      (state-output state)])))))
 
 (defn stop! [state]
-  (update-state! state #(assoc % :status "idle"
-                                :currentText nil
-                                :currentTimeline []
-                                :utteranceId nil
-                                :wordIndex 0))
-  (result true [(event-output {:type "STOP"})
-                (command-output "vocal" {:type "stop"})
-                (command-output "prosodic" {:type "stop"})
-                (state-output state)]))
+  (let [utterance-id (:utteranceId @state)]
+    (update-state! state #(-> %
+                              (assoc :status "idle"
+                                     :currentText nil
+                                     :currentTimeline []
+                                     :utteranceId nil
+                                     :wordIndex 0)
+                              (update :cancelledUtteranceIds remember-cancelled utterance-id)))
+    (result true [(event-output {:type "STOP"
+                                 :utteranceId utterance-id})
+                  (command-output "vocal" {:type "stop"
+                                           :utteranceId utterance-id})
+                  (command-output "prosodic" {:type "stop"
+                                              :utteranceId utterance-id})
+                  (state-output state)])))
 
 (defn pause! [state]
   (update-state! state #(assoc % :status "paused"))
@@ -358,9 +413,16 @@
                 (state-output state)]))
 
 (defn fail! [state message]
-  (update-state! state #(assoc % :status "error" :error (or message "TTS failed")))
-  (result false [(event-output {:type "ERROR" :message (:error @state)})
-                 (state-output state)]))
+  (let [utterance-id (:utteranceId @state)]
+    (update-state! state #(-> %
+                              (assoc :status "error"
+                                     :utteranceId nil
+                                     :error (or message "TTS failed"))
+                              (update :cancelledUtteranceIds remember-cancelled utterance-id)))
+    (result false [(event-output {:type "ERROR"
+                                  :utteranceId utterance-id
+                                  :message (:error @state)})
+                   (state-output state)])))
 
 (defn update-config! [state config]
   (update-state! state #(update % :config merge (normalize-config config)))
@@ -372,9 +434,9 @@
     "startSpeech" (start-speech! state (:text command))
     "planText" (plan-text! state (:text command))
     "planAzureResponse" (plan-azure-response! state (:text command) (:response command) (:durationSec command))
-    "playbackStarted" (playback-started! state)
-    "processWordBoundary" (process-word-boundary! state (:word command) (:elapsedSec command))
-    "finishSpeech" (finish-speech! state)
+    "playbackStarted" (playback-started! state (:utteranceId command))
+    "processWordBoundary" (process-word-boundary! state (:word command) (:elapsedSec command) (:utteranceId command))
+    "finishSpeech" (finish-speech! state (:utteranceId command))
     "stop" (stop! state)
     "pause" (pause! state)
     "resume" (resume! state)
