@@ -55,6 +55,25 @@
    :target target
    :command command})
 
+(defn- config-enabled? [state key]
+  (boolean (get-in @state [:config key])))
+
+(defn- command-when [enabled target command]
+  (when enabled
+    (command-output target command)))
+
+(defn- mouth-stop-outputs [reason]
+  [(command-output "vocal" {:type "stop" :reason reason})
+   (command-output "lipsync" {:type "stop" :reason reason})])
+
+(defn- speaking-stop-outputs [state reason]
+  (vec (concat
+        [(command-output "tts" {:type "stop" :reason reason})]
+        (mouth-stop-outputs reason)
+        [(command-when (config-enabled? state :useProsody)
+                       "prosodic"
+                       {:type "stop" :reason reason})])))
+
 (defn- result [value outputs]
   {:result value :outputs (vec (remove nil? outputs))})
 
@@ -75,8 +94,8 @@
                                 :interrupted false
                                 :interruptionSource nil))
   (result true [(event-output {:type "START"})
-                (command-output "transcription" {:type "start"})
-                (command-output "blink" {:type "enable"})
+                (command-when (:autoListen (:config @state)) "transcription" {:type "start"})
+                (command-when (config-enabled? state :useBlink) "blink" {:type "enable"})
                 (state-output state)]))
 
 (defn stop! [state]
@@ -86,11 +105,14 @@
                                 :interrupted false
                                 :interruptionSource nil))
   (result true [(event-output {:type "STOP"})
-                (command-output "tts" {:type "stop"})
-                (command-output "vocal" {:type "stop"})
-                (command-output "prosodic" {:type "stop"})
+                (command-output "tts" {:type "stop" :reason "conversationStop"})
+                (command-output "vocal" {:type "stop" :reason "conversationStop"})
+                (command-output "lipsync" {:type "stop" :reason "conversationStop"})
+                (command-when (config-enabled? state :useProsody)
+                              "prosodic"
+                              {:type "stop" :reason "conversationStop"})
                 (command-output "transcription" {:type "stop"})
-                (command-output "blink" {:type "disable"})
+                (command-when (config-enabled? state :useBlink) "blink" {:type "disable"})
                 (state-output state)]))
 
 (defn agent-start! [state text]
@@ -109,15 +131,22 @@
                                   :text text})
                   (command-output "tts" {:type "startSpeech" :text text})
                   (command-output "tts" {:type "planText" :text text})
-                  (command-output "prosodic" {:type "startTalking"})
-                  (command-output "gaze" {:type "setTarget" :target {:x 0 :y 0 :z 0}})
+                  (command-when (config-enabled? state :useProsody)
+                                "prosodic"
+                                {:type "startTalking"})
+                  (command-when (config-enabled? state :useGaze)
+                                "gaze"
+                                {:type "setTarget" :target {:x 0 :y 0 :z 0}})
                   (state-output state)])))
 
 (defn agent-end! [state]
   (set-conversation-state! state "idle")
   (result true [(event-output {:type "AGENT_FINISHED" :turnId (:turnId @state)})
-                (command-output "prosodic" {:type "stopTalking"})
-                (command-output "vocal" {:type "stop"})
+                (command-when (config-enabled? state :useProsody)
+                              "prosodic"
+                              {:type "stopTalking"})
+                (command-output "vocal" {:type "stop" :reason "agentEnd"})
+                (command-output "lipsync" {:type "stop" :reason "agentEnd"})
                 (when (:autoListen (:config @state))
                   (command-output "transcription" {:type "start"}))
                 (state-output state)]))
@@ -134,7 +163,7 @@
                                   :interrupted (boolean interrupted?)})
                   (when final?
                     (command-output "transcription" {:type "stop"}))
-                  (when final?
+                  (when (and final? (config-enabled? state :useGaze))
                     (command-output "gaze" {:type "setTarget" :target {:x -0.2 :y -0.15 :z 0}}))
                   (state-output state)])))
 
@@ -156,14 +185,14 @@
          #(assoc % :state "interrupted"
                    :interrupted true
                    :interruptionSource source))
-        (result true [(event-output {:type "INTERRUPTED"
-                                      :turnId (:turnId @state)
-                                      :source source})
-                      (command-output "tts" {:type "stop"})
-                      (command-output "vocal" {:type "stop"})
-                      (command-output "prosodic" {:type "stop"})
-                      (command-output "gaze" {:type "resetToNeutral" :duration 120})
-                      (state-output state)])))))
+        (result true (concat [(event-output {:type "INTERRUPTED"
+                                             :turnId (:turnId @state)
+                                             :source source})]
+                             (speaking-stop-outputs state "interruption")
+                             [(command-when (config-enabled? state :useGaze)
+                                            "gaze"
+                                            {:type "resetToNeutral" :duration 120})
+                              (state-output state)]))))))
 
 (defn update-config! [state config]
   (update-state! state #(update % :config merge (normalize-config config)))
