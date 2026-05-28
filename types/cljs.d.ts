@@ -453,6 +453,7 @@ export interface VocalWordTiming {
 
 export interface VocalTimeline {
   name?: string;
+  utteranceId?: string;
   text?: string;
   visemes: VocalVisemeEvent[];
   wordTimings?: VocalWordTiming[];
@@ -678,6 +679,7 @@ export interface TTSAgencyState {
   currentTimeline?: TTSTimelineEvent[];
   currentVoice?: unknown | null;
   utteranceId?: string | null;
+  cancelledUtteranceIds?: string[];
   error?: string | null;
 }
 
@@ -705,9 +707,9 @@ export interface TTSAgency {
   startSpeech(text: string): string;
   planText(text: string): TTSPlan;
   planAzureResponse(text: string, response: TTSAzureResponse, durationSec?: number): TTSPlan;
-  playbackStarted(): boolean;
-  processWordBoundary(word: string, elapsedSec?: number): boolean;
-  finishSpeech(): boolean;
+  playbackStarted(utteranceId?: string): boolean;
+  processWordBoundary(word: string, elapsedSec?: number, utteranceId?: string): boolean;
+  finishSpeech(utteranceId?: string): boolean;
   pause(): boolean;
   resume(): boolean;
   stop(): boolean;
@@ -1074,9 +1076,9 @@ export interface TTSWorkerClient {
   startSpeech(text: string): void;
   planText(text: string): void;
   planAzureResponse(text: string, response: TTSAzureResponse, durationSec?: number): void;
-  playbackStarted(): void;
-  processWordBoundary(word: string, elapsedSec?: number): void;
-  finishSpeech(): void;
+  playbackStarted(utteranceId?: string): void;
+  processWordBoundary(word: string, elapsedSec?: number, utteranceId?: string): void;
+  finishSpeech(utteranceId?: string): void;
   pause(): void;
   resume(): void;
   stop(): void;

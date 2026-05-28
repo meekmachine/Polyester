@@ -636,14 +636,20 @@
                                   ([text response duration-sec]
                                    (protocol/data->js
                                     (:result (emit! (tts/plan-azure-response! state text (protocol/js->data response) duration-sec))))))
-            :playbackStarted (fn []
-                               (:result (emit! (tts/playback-started! state))))
+            :playbackStarted (fn
+                               ([] (:result (emit! (tts/playback-started! state nil))))
+                               ([utterance-id]
+                                (:result (emit! (tts/playback-started! state utterance-id)))))
             :processWordBoundary (fn
-                                   ([word] (:result (emit! (tts/process-word-boundary! state word nil))))
+                                   ([word] (:result (emit! (tts/process-word-boundary! state word nil nil))))
                                    ([word elapsed-sec]
-                                    (:result (emit! (tts/process-word-boundary! state word elapsed-sec)))))
-            :finishSpeech (fn []
-                            (:result (emit! (tts/finish-speech! state))))
+                                    (:result (emit! (tts/process-word-boundary! state word elapsed-sec nil))))
+                                   ([word elapsed-sec utterance-id]
+                                    (:result (emit! (tts/process-word-boundary! state word elapsed-sec utterance-id)))))
+            :finishSpeech (fn
+                            ([] (:result (emit! (tts/finish-speech! state nil))))
+                            ([utterance-id]
+                             (:result (emit! (tts/finish-speech! state utterance-id)))))
             :pause (fn []
                      (:result (emit! (tts/pause! state))))
             :resume (fn []
@@ -1042,14 +1048,20 @@
                                (.post client #js {:agency "tts" :type "planAzureResponse" :text text :response response}))
                               ([text response duration-sec]
                                (.post client #js {:agency "tts" :type "planAzureResponse" :text text :response response :durationSec duration-sec})))
-         :playbackStarted (fn []
-                            (.post client #js {:agency "tts" :type "playbackStarted"}))
+         :playbackStarted (fn
+                            ([] (.post client #js {:agency "tts" :type "playbackStarted"}))
+                            ([utterance-id]
+                             (.post client #js {:agency "tts" :type "playbackStarted" :utteranceId utterance-id})))
          :processWordBoundary (fn
                                 ([word] (.post client #js {:agency "tts" :type "processWordBoundary" :word word}))
                                 ([word elapsed-sec]
-                                 (.post client #js {:agency "tts" :type "processWordBoundary" :word word :elapsedSec elapsed-sec})))
-         :finishSpeech (fn []
-                         (.post client #js {:agency "tts" :type "finishSpeech"}))
+                                 (.post client #js {:agency "tts" :type "processWordBoundary" :word word :elapsedSec elapsed-sec}))
+                                ([word elapsed-sec utterance-id]
+                                 (.post client #js {:agency "tts" :type "processWordBoundary" :word word :elapsedSec elapsed-sec :utteranceId utterance-id})))
+         :finishSpeech (fn
+                         ([] (.post client #js {:agency "tts" :type "finishSpeech"}))
+                         ([utterance-id]
+                          (.post client #js {:agency "tts" :type "finishSpeech" :utteranceId utterance-id})))
          :pause (fn []
                   (.post client #js {:agency "tts" :type "pause"}))
          :resume (fn []

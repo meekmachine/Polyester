@@ -766,12 +766,34 @@ if (!(ledViseme?.offsetMs < rawTimelineViseme?.offsetMs)) {
   throw new Error(`Expected Azure visual lead in vocal timeline, led=${JSON.stringify(ledViseme)}, raw=${JSON.stringify(rawTimelineViseme)}`);
 }
 
-tts.playbackStarted();
-tts.processWordBoundary('we', 0.05);
-tts.finishSpeech();
+tts.playbackStarted(utteranceId);
+tts.processWordBoundary('we', 0.05, utteranceId);
+tts.finishSpeech(utteranceId);
+
+const commandCountBeforeStaleWord = ttsCommands.length;
+const staleWordAccepted = tts.processWordBoundary('stale', 0.75, utteranceId);
+if (staleWordAccepted !== false || ttsCommands.length !== commandCountBeforeStaleWord) {
+  throw new Error(`Expected stale CLJS TTS word boundary to be ignored without agency commands, accepted=${staleWordAccepted}, commands=${JSON.stringify(ttsCommands.slice(commandCountBeforeStaleWord))}`);
+}
+
+const cancelledUtteranceId = tts.startSpeech('cancel me');
+tts.planText('cancel me');
+tts.stop();
+
+const stateAfterStop = tts.getSnapshot();
+if (!stateAfterStop.cancelledUtteranceIds?.includes(cancelledUtteranceId)) {
+  throw new Error(`Expected CLJS TTS stop to remember cancelled utterance, received ${JSON.stringify(stateAfterStop)}`);
+}
+
+const commandCountBeforeStalePlayback = ttsCommands.length;
+const stalePlaybackAccepted = tts.playbackStarted(cancelledUtteranceId);
+if (stalePlaybackAccepted !== false || ttsCommands.length !== commandCountBeforeStalePlayback) {
+  throw new Error(`Expected stale CLJS TTS playback start to be ignored without agency commands, accepted=${stalePlaybackAccepted}, commands=${JSON.stringify(ttsCommands.slice(commandCountBeforeStalePlayback))}`);
+}
 
 if (!ttsEvents.some((event) => event.type === 'AZURE_RESPONSE_PLANNED') ||
-    !ttsEvents.some((event) => event.type === 'WORD_BOUNDARY')) {
+    !ttsEvents.some((event) => event.type === 'WORD_BOUNDARY') ||
+    !ttsEvents.some((event) => event.type === 'STALE_UTTERANCE_IGNORED')) {
   throw new Error(`Expected CLJS TTS planning and word boundary events, received ${JSON.stringify(ttsEvents)}`);
 }
 
