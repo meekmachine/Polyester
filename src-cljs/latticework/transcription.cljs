@@ -12,7 +12,10 @@
    :interruptionThreshold 0.12
    :referenceRatio 1.8
    :releaseThreshold 0.06
-   :releaseMs 350})
+   :releaseMs 350
+   :autoRestart true
+   :restartDelayMs 250
+   :maxRestartCount 3})
 
 (def default-state
   {:status "idle"
@@ -26,6 +29,11 @@
    :lastUserLevel 0
    :lastReferenceLevel 0
    :lastInterruptionTime nil
+   :error nil
+   :restartCount 0
+   :lastRestartReason nil
+   :pendingRestart nil
+   :lastRecommendation nil
    :config default-config
    :eventCount 0
    :lastUpdatedTime nil})
@@ -51,7 +59,16 @@
   @state)
 
 (defn transcription-state [state]
-  (select-keys @state [:status :isListening :interimTranscript :finalTranscript :isInterrupted :interruptionSource]))
+  (select-keys @state [:status
+                       :isListening
+                       :interimTranscript
+                       :finalTranscript
+                       :isInterrupted
+                       :interruptionSource
+                       :error
+                       :restartCount
+                       :pendingRestart
+                       :lastRecommendation]))
 
 (defn- state-output [state]
   (protocol/emit-state agency-name @state))
@@ -67,6 +84,11 @@
    :target target
    :command command})
 
+(defn- recommendation-output [recommendation]
+  {:type "transcriptionRecommendation"
+   :agency agency-name
+   :recommendation recommendation})
+
 (defn- result [value outputs]
   {:result value :outputs (vec (remove nil? outputs))})
 
@@ -77,6 +99,48 @@
                update-fn
                (update :eventCount inc)
                (assoc :lastUpdatedTime (now))))))
+
+(defn- remember-recommendation! [state recommendation]
+  (swap! state assoc :lastRecommendation recommendation)
+  recommendation)
+
+(defn- cleanup-recommendation! [state reason extra]
+  (let [recommendation (remember-recommendation!
+                        state
+                        (merge {:type "CLEANUP"
+                                :reason reason
+                                :clearInterimTranscript true
+                                :clearInterruption true
+                                :cancelRestart true}
+                               extra))]
+    (recommendation-output recommendation)))
+
+(defn- restart-recommendation! [state reason]
+  (let [config (:config @state)
+        max-restarts (max 0 (number-or (:maxRestartCount config) 3))
+        next-count (inc (:restartCount @state))
+        can-restart? (and (:continuous config)
+                          (:autoRestart config)
+                          (<= next-count max-restarts))
+        recommendation (if can-restart?
+                         {:type "RESTART"
+                          :reason reason
+                          :delayMs (max 0 (number-or (:restartDelayMs config) 250))
+                          :restartCount next-count
+                          :maxRestartCount max-restarts}
+                         {:type "STOP"
+                          :reason (if (and (:continuous config) (:autoRestart config))
+                                    "maxRestartCount"
+                                    reason)
+                          :restartCount (:restartCount @state)
+                          :maxRestartCount max-restarts})]
+    (update-state!
+     state
+     #(assoc % :restartCount (if can-restart? next-count (:restartCount %))
+               :lastRestartReason reason
+               :pendingRestart (when (= "RESTART" (:type recommendation)) recommendation)
+               :lastRecommendation recommendation))
+    (recommendation-output recommendation)))
 
 (defn normalize-transcript [transcript]
   (-> (or transcript "")
@@ -97,7 +161,9 @@
   (update-state! state #(assoc % :status "listening"
                                 :isListening true
                                 :interimTranscript ""
-                                :finalTranscript ""))
+                                :finalTranscript ""
+                                :error nil
+                                :pendingRestart nil))
   (result true [(event-output {:type "START"})
                 (state-output state)]))
 
@@ -105,8 +171,10 @@
   (update-state! state #(assoc % :status "idle"
                                 :isListening false
                                 :isInterrupted false
-                                :interruptionSource nil))
+                                :interruptionSource nil
+                                :pendingRestart nil))
   (result true [(event-output {:type "STOP"})
+                (cleanup-recommendation! state "stop" {:releaseBrowserResources true})
                 (state-output state)]))
 
 (defn reset-state! [state]
@@ -115,8 +183,13 @@
                                 :lastTranscript ""
                                 :lastConfidence nil
                                 :isInterrupted false
-                                :interruptionSource nil))
+                                :interruptionSource nil
+                                :error nil
+                                :restartCount 0
+                                :lastRestartReason nil
+                                :pendingRestart nil))
   (result true [(event-output {:type "RESET"})
+                (cleanup-recommendation! state "reset" {:releaseBrowserResources false})
                 (state-output state)]))
 
 (defn process-result! [state transcript final? confidence source]
@@ -195,8 +268,11 @@
 (defn fail! [state message]
   (update-state! state #(assoc % :status "error"
                                 :isListening false
-                                :error (or message "Transcription failed")))
+                                :error (or message "Transcription failed")
+                                :isInterrupted false
+                                :interruptionSource nil))
   (result false [(event-output {:type "ERROR" :message (:error @state)})
+                 (restart-recommendation! state "error")
                  (state-output state)]))
 
 (defn update-config! [state config]
