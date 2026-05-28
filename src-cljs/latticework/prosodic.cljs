@@ -148,6 +148,18 @@
 (defn- schedule-output [snippet]
   (protocol/emit-schedule-snippet agency-name (animation-snippet snippet) {:autoPlay true}))
 
+(defn- pulse-schedule-output [state snippet]
+  (let [pulse-priority (number-or (get-in @state [:config :pulsePriority]) (:priority snippet))]
+    (schedule-output (assoc snippet :priority pulse-priority))))
+
+(defn- pulse-channel [channels]
+  (let [channels (set channels)]
+    (cond
+      (= channels #{"brow" "head"}) "both"
+      (contains? channels "brow") "brow"
+      (contains? channels "head") "head"
+      :else "none")))
+
 (defn- update-state! [state update-fn]
   (swap! state
          (fn [current]
@@ -201,7 +213,10 @@
         head (:headSnippet current)
         brow-name (get-in current [:scheduledNames :brow])
         head-name (get-in current [:scheduledNames :head])
-        pulse-head? (odd? word-index)]
+        pulse-head? (odd? word-index)
+        channels (cond-> []
+                   (and brow brow-name) (conj "brow")
+                   (and head head-name pulse-head?) (conj "head"))]
     (update-state!
      state
      #(-> %
@@ -215,12 +230,16 @@
           (cond-> []
             (and brow brow-name)
             (conj (protocol/emit-remove-snippet agency-name brow-name)
-                  (schedule-output (get-in @state [:browSnippet])))
+                  (pulse-schedule-output state (get-in @state [:browSnippet])))
 
             (and head head-name pulse-head?)
             (conj (protocol/emit-remove-snippet agency-name head-name)
-                  (schedule-output (get-in @state [:headSnippet]))))
-          [(event-output {:type "PULSE" :wordIndex word-index :channel "both"})
+                  (pulse-schedule-output state (get-in @state [:headSnippet]))))
+          [(event-output {:type "PULSE"
+                          :wordIndex word-index
+                          :channel (pulse-channel channels)
+                          :channels channels
+                          :priority (number-or (get-in @state [:config :pulsePriority]) (:pulsePriority default-config))})
            (state-output state)]))))
 
 (defn stop-talking! [state]

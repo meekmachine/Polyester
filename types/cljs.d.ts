@@ -401,6 +401,8 @@ export interface ProsodicEvent {
   snippetName?: string;
   wordIndex?: number;
   channel?: 'brow' | 'head' | 'both';
+  channels?: Array<'brow' | 'head'>;
+  priority?: number;
   [key: string]: unknown;
 }
 
