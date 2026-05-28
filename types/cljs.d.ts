@@ -248,6 +248,7 @@ export interface BlinkAgencyConfig {
 export interface BlinkTriggerOptions {
   intensity?: number;
   duration?: number;
+  randomness?: number;
 }
 
 export interface BlinkAgency {

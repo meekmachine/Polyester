@@ -112,7 +112,10 @@
                    0.05
                    1.0
                    (protocol/maybe-number (:duration overrides) (:duration current)))
-         randomness (:randomness current)
+         randomness (protocol/clamp
+                     0
+                     1
+                     (protocol/maybe-number (:randomness overrides) (:randomness current)))
          name (str "blink_" (.round js/Math (protocol/now-ms)))]
      {:name name
       :curves (build-blink-curves intensity duration randomness)
