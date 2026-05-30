@@ -81,6 +81,11 @@ Remaining transition work is tracked from the Latticework umbrella issue:
 deeper agency parity, worker integration hardening, and an EmotionExpression
 agency scaffold.
 
+See [Polyester CLJS Transition Architecture](docs/cljs-transition-architecture.md)
+for the detailed current-state inventory, recent CLJS PR summary, remaining
+TypeScript compatibility surfaces, and the next runtime stream/Effect boundary
+work.
+
 ## A/B Testing Strategy
 
 Polyester is intended to be tested from LoomLarge without committing temporary
