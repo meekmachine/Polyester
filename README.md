@@ -31,7 +31,9 @@ npm install three
 
 ## Runtime Exports
 
-The CLJS npm bundle is exposed through `./cljs`.
+The CLJS npm bundle is compiled into the package and exposed from the normal
+root entrypoint. Consumers should import it like any other JavaScript library and
+should not need Java, Clojure, or `shadow-cljs` during app install/build.
 
 ```ts
 import {
@@ -46,7 +48,14 @@ import {
   createTTSAgency,
   createConversationAgency,
   createVocalAgency,
-} from '@lovelace_lol/polyester/cljs';
+} from '@lovelace_lol/polyester';
+```
+
+Backwards-compatible `./cljs` imports are still available for existing
+experiments, but new LoomLarge integration should use the root entrypoint.
+
+```ts
+import { createBlinkAgency } from '@lovelace_lol/polyester';
 ```
 
 The CLJS worker bundle is exposed through `./cljs-worker`.
@@ -58,10 +67,11 @@ const worker = new Worker(
 );
 ```
 
-The current root export still mirrors the inherited Latticework TypeScript
-surface while the split is being validated. The long-term direction is for
-Polyester to become the CLJS-first agency package and for Latticework to remain
-the stable TypeScript package until the migration is complete.
+The root export still mirrors the inherited Latticework TypeScript surface while
+the split is being validated, and it now also re-exports the compiled CLJS agency
+constructors needed by LoomLarge. The long-term direction is for Polyester to
+become the CLJS-first agency package and for Latticework to remain the stable
+TypeScript package until the migration is complete.
 
 ## Current CLJS Agency Coverage
 
