@@ -134,6 +134,12 @@ const animation = createAnimationAgency(
     setSnippetIntensityScale(name, scale) {
       animationEffects.push({ op: 'hostSetScale', name, scale });
     },
+    setSnippetLoopMode(name, mode) {
+      animationEffects.push({ op: 'hostSetLoop', name, mode });
+    },
+    setSnippetReverse(name, reverse) {
+      animationEffects.push({ op: 'hostSetReverse', name, reverse });
+    },
     onAnimationEffect(effect) {
       animationEffects.push(effect);
     },
@@ -179,6 +185,10 @@ if (!normalizedAnimation?.isPlaying || normalizedAnimation.duration !== 0.2 || n
 animation.setSnippetPlaybackRate('cljs_smile', 1.5);
 animation.setSnippetIntensityScale('cljs_smile', 0.4);
 animation.seek('cljs_smile', 0.1);
+animation.setSnippetPlaying('cljs_smile', false);
+animation.setSnippetPlaying('cljs_smile', true);
+animation.setSnippetLoopMode('cljs_smile', 'repeat');
+animation.setSnippetReverse('cljs_smile', true);
 animation.pause();
 animation.play();
 
@@ -200,6 +210,23 @@ animation.updateSnippet({
 animationState = animation.getState();
 if (animationState.snippets.cljs_smile.duration !== 0.3) {
   throw new Error(`Expected animation update to recalculate duration, received ${animationState.snippets.cljs_smile.duration}`);
+}
+
+for (const op of [
+  'hostUpdateSnippet',
+  'hostSeekSnippet',
+  'hostPauseSnippet',
+  'hostResumeSnippet',
+  'hostSetRate',
+  'hostSetScale',
+  'hostSetLoop',
+  'hostSetReverse',
+  'hostPauseAll',
+  'hostPlayAll',
+]) {
+  if (!animationEffects.some((effect) => effect.op === op)) {
+    throw new Error(`Expected CLJS animation control effect ${op}, received ${JSON.stringify(animationEffects)}`);
+  }
 }
 
 animation.remove('cljs_smile');

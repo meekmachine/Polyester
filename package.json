@@ -36,7 +36,7 @@
     "dev:cljs": "shadow-cljs watch npm worker",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-blink.mjs && node scripts/smoke-cljs-azure-parity.mjs",
+    "test:cljs": "npm run build:cljs && node scripts/check-cljs-mixer-boundary.mjs && node scripts/smoke-cljs-blink.mjs && node scripts/smoke-cljs-azure-parity.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepare": "npm run build",

@@ -1,46 +1,87 @@
-# Animation Agency → AnimationMixer Migration (Work-in-Progress)
+# Animation Agency Mixer Boundary
 
-## Goal
-Replace the legacy per-frame curve scheduler (and EngineThree transition calls) with AnimationMixer-driven playback for AU/viseme snippets, including mixed morph+bone continua, while preserving the existing snippet UI (play/pause, rate, intensity, blend).
+This note used to describe an in-progress migration back from a legacy
+per-frame scheduler. The current Polyester/Latticework boundary is different:
+the animation service is already mixer-first, and the CLJS agencies must stay
+as planners that emit schedule/control data.
 
-## Current State (after latest revert)
-- Legacy scheduler/machine flow is back to working baseline.
-- EngineThree exposes mixer/mixerRoot/model/morph mesh accessors (added during migration attempts).
-- Machine and service experiments were reverted; mixer-only playback is not active.
+## Current State
 
-## Intended Mixer-Only Design
-- Build `AnimationClip` + `AnimationAction` per snippet/curve once on load/play.
-- Tracks per curve:
-  - Morph tracks: AU numeric → `AU_TO_MORPHS`/`MORPH_VARIANTS`; non-numeric curveId → treat as morph name.
-  - Bone tracks: AU numeric → bone bindings from shapeDict (e.g., `BONE_AU_TO_BINDINGS`/`COMPOSITE_ROTATIONS`), create rotation tracks on model bones.
-  - Mixed continua (morph+bone): include both morph and bone tracks in a single action so one weight/timeScale/loop controls both sides (L/R or up/down).
-- Snippet settings → action config:
-  - Weight ← snippetIntensityScale or mixerWeight
-  - TimeScale ← snippetPlaybackRate
-  - Loop/clamp ← snippet.loop, mixerLoopMode, mixerClampWhenFinished
-  - Blend mode: fade/crossfade/additive/warp using mixer helpers and face-section policies (facePart/faceArea from shapeDict).
-- Lifecycle:
-  - On LOAD/PLAY: create/reuse actions; start play; cache per snippet/curve/binding.
-  - On STEP: **only** `mixer.update(dt)` (no per-frame curve sampling or EngineThree transitions).
-  - On STOP/REMOVE: stop actions, uncache.
+- TypeScript `animationService.ts` builds Loom3 clip handles and reads playback
+  state from the handle event stream.
+- `src-cljs/latticework/animation.cljs` stores snippet metadata and emits
+  `scheduleSnippet` plus control effects.
+- Other CLJS agencies, including gaze, blink, prosodic, lipsync, and vocal,
+  build snippets or control effects as plain maps.
+- The CLJS worker dispatches commands and posts ordered output maps. It does
+  not own a render loop.
+- Loom3/Three owns `AnimationMixer.update(delta)` through the renderer host.
 
-## Mapping References
-- Morphs: `src/engine/arkit/shapeDict.ts` → `AU_TO_MORPHS`, `MORPH_VARIANTS`.
-- Bones: same shapeDict → `BONE_AU_TO_BINDINGS`, `COMPOSITE_ROTATIONS` (and facePart/faceArea for section/channel grouping).
-- Engine host accessors: `EngineThree.getAnimationMixer/getMixerRoot/getModelRoot/getMorphMeshes`.
+There should be no Polyester CLJS `STEP`, `tick`, `update(delta)`,
+`requestAnimationFrame`, or interval-based curve evaluator. Adding one would
+recreate the dual-runtime problem where CLJS samples/apply curves while Loom3 is
+also advancing mixer actions.
 
-## What Broke in the One-Pass Attempt
-- Legacy scheduler removed; machine partially rewired; mixer actions morph-only; per-frame fallback sampling introduced → UI stopped listing/playing snippets.
-- Takeaway: need incremental changes with testing, not a monolithic swap.
+## Ownership
 
-## Recommended Incremental Plan
-1) From baseline, keep legacy on. Add SET_HOST/STEP in machine and host mixer accessors (non-breaking). Ensure UI still works.
-2) Add mixer actions for morph-only curves (build on load/play, advance mixer on STEP). Keep legacy for bones/mixed.
-3) Add bone tracks for AU bindings; build mixed actions (morph+bone). Verify continua stay synced.
-4) Switch blend policies per face section; wire UI mixer fields to actions.
-5) Remove legacy scheduler/transition calls once mixer covers all targets; clean up action caches and stop logic.
+Polyester CLJS owns:
 
-## Notes
-- The only per-frame work in mixer mode should be `mixer.update(dt)`; no curve sampling/applying AUs each frame.
-- Visemes: treat like morph tracks (curveId morph names or viseme index mapping).
-- Keep UI snippet list in sync by relying on machine state; avoid mutating snapshots directly.
+- agency state and behavior decisions
+- snippet construction
+- schedule and control commands
+- cleanup plans and coarse orchestration metadata
+- provider normalization, such as Azure viseme timing
+
+Loom3/Three and the host own:
+
+- clip/action construction from snippet curves
+- mixer frame advancement
+- runtime weights, fades, loop modes, playback rate, reverse playback, and
+  completion
+- stream events exposed by clip handles
+- action cleanup and disposal
+
+## Host Contract
+
+Normal snippet playback should use the host control surface:
+
+- `scheduleSnippet` or `schedule`
+- `updateSnippet`
+- `removeSnippet`
+- `seekSnippet`
+- `pauseSnippet`
+- `resumeSnippet`
+- `setSnippetPlaybackRate`
+- `setSnippetIntensityScale`
+- `setSnippetLoopMode`
+- `setSnippetReverse`
+
+The host implementation should route scheduled snippets into Loom3 clip
+construction. Procedural `transitionAU` or `transitionViseme` fallbacks can
+remain as legacy/dev compatibility, but they should not be the production path
+for CLJS scheduled playback.
+
+## Guardrails
+
+`npm run test:cljs` now runs `scripts/check-cljs-mixer-boundary.mjs` before the
+CLJS smoke tests. The boundary check scans CLJS source for frame-loop/runtime
+terms and verifies that `runtime.cljs` still exposes the expected host control
+effect names.
+
+The smoke test also verifies that the in-process CLJS animation agency forwards
+schedule, update, seek, pause, resume, parameter, and global playback operations
+to host callbacks. This catches accidental regressions where agency code starts
+handling mixer runtime work locally instead of emitting control effects.
+
+## Remaining Work
+
+- Audit the LoomLarge host adapter that receives Polyester CLJS
+  `scheduleSnippet` output and confirm it routes to Loom3 clip construction in
+  production chat.
+- Prefer `vocal.cljs` combined sentence timelines for production lipsync and
+  keep `lipsync.cljs` per-word scheduling as compatibility.
+- Move prosodic fade plans into mixer-owned handle/weight operations where the
+  host supports it. Until then, document timer fallback behavior as temporary
+  orchestration code.
+- Add coalescing or retarget/update semantics for high-frequency gaze sources
+  so repeated gaze target changes do not flood the mixer with short-lived clips.
