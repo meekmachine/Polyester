@@ -2,6 +2,14 @@
   (:require [latticework.gaze :as gaze]
             [latticework.protocol :as protocol]))
 
+;; Eye/head tracking is a facade over the CLJS gaze planner. It normalizes
+;; tracking config, mode, and target commands, then delegates snippet creation to
+;; `latticework.gaze`.
+;;
+;; Camera access, webcam streams, face tracking, calibration UI, and per-frame
+;; target sampling are intentionally outside this namespace. The host supplies
+;; discrete target updates; CLJS turns them into scheduled animation effects.
+
 (def agency-name "eyeHeadTracking")
 
 (def snippet-names

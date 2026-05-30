@@ -4,6 +4,16 @@
             [latticework.protocol :as protocol]
             [latticework.vocal :as vocal]))
 
+;; TTS is the utterance/timeline planner for speech output. It tracks the active
+;; utterance id, parses text into word timings, builds local or Azure-aligned
+;; mouth timelines, and emits commands for Vocal/Prosodic instead of directly
+;; touching browser audio.
+;;
+;; Speech synthesis engines, Azure credentials, network calls, audio playback,
+;; and DOM clocks belong to the host/backend boundary. Stale callback guards
+;; live here because utterance ids are agency state, but side effects remain
+;; plain output maps.
+
 (def agency-name "tts")
 
 (def default-config

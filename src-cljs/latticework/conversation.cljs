@@ -2,6 +2,15 @@
   (:require [clojure.string :as str]
             [latticework.protocol :as protocol]))
 
+;; Conversation is the CLJS turn orchestrator. It owns serializable state for
+;; running/idle/speaking/interrupted/processing turns and emits typed commands to
+;; speech, transcription, gaze, blink, prosody, Vocal, and LipSync agencies.
+;;
+;; This namespace does not hold service instances, backend clients, LiveKit
+;; rooms, audio elements, or React state. Those effects belong to LoomLarge or
+;; the JS host. Conversation should remain a reducer-like planner over events
+;; and commands.
+
 (def agency-name "conversation")
 
 (def default-config

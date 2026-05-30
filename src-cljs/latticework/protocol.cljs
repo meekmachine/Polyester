@@ -1,5 +1,15 @@
 (ns latticework.protocol)
 
+;; Protocol is the small shared boundary between CLJS agencies, the worker, and
+;; the JavaScript host. It keeps JS conversion, time helpers, numeric guards,
+;; and output-envelope construction in one place so agency files can stay
+;; focused on planning.
+;;
+;; Keep this namespace policy-free. It should define plain data shapes like
+;; `state`, `scheduleSnippet`, `removeSnippet`, and `animationEffect`, but it
+;; should not decide when an agency should schedule animation or mutate host
+;; state.
+
 (defn js->data [value]
   (js->clj value :keywordize-keys true))
 

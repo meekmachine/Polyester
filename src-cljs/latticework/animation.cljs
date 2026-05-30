@@ -1,6 +1,15 @@
 (ns latticework.animation
   (:require [latticework.protocol :as protocol]))
 
+;; Animation is the CLJS scheduling gateway, not a frame runtime. It keeps
+;; serializable snippet metadata, schedule order, and coarse playback state so
+;; other agencies can talk in one shared animation language.
+;;
+;; This namespace emits schedule/control effects as plain maps. The host still
+;; owns Loom3/Three clip creation, AnimationMixer advancement, stream events,
+;; and disposal. Do not add a per-frame `tick`, `STEP`, or `update(delta)` loop
+;; here; that would recreate a second animation runtime.
+
 (def agency-name "animation")
 
 (def default-state

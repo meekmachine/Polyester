@@ -1,6 +1,14 @@
 (ns latticework.npm
   (:require [latticework.runtime :as runtime]))
 
+;; This namespace is the compiled ESM facade for `@lovelace_lol/polyester/cljs`.
+;; It intentionally stays thin: every exported constructor delegates to
+;; `runtime.cljs`, preserving one JS-facing API for in-process agencies and
+;; worker clients.
+;;
+;; Do not put agency behavior here. Planner logic belongs in the agency
+;; namespaces, while host callback/output application belongs in `runtime.cljs`.
+
 (defn create-animation-agency
   ([config] (runtime/create-in-process-animation-agency config nil))
   ([config host] (runtime/create-in-process-animation-agency config host)))
