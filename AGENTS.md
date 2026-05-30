@@ -49,6 +49,28 @@ Effect state should be treated as a LoomLarge integration boundary, not as
 mutable state inside Polyester CLJS agencies. Polyester should provide clean
 streams and snapshots for LoomLarge to consume.
 
+## Mixer Boundary
+
+Do not add a CLJS runtime shaped like `tick`, `STEP`, `update(delta)`,
+`requestAnimationFrame`, or interval-based curve sampling. Polyester CLJS should
+emit scheduled snippets and control effects. Loom3/Three owns
+`AnimationMixer.update(delta)`, clip action timing, stream events, and runtime
+cleanup.
+
+When touching CLJS animation/gaze/blink/prosodic/lipsync/vocal code, run
+`npm run test:cljs` so the mixer-boundary guard and smoke tests both execute.
+
+## GitHub CLI Fallbacks
+
+If `gh pr edit` fails because GitHub's GraphQL response includes deprecated
+classic project fields, use the REST API fallback instead, for example
+`gh api repos/<owner>/<repo>/pulls/<number> -X PATCH -f body="$body"`.
+
+When passing Markdown with backticks to `gh issue comment`, `gh pr create`, or
+`gh pr edit`, use `--body-file -` with a single-quoted heredoc or assign the
+body from `cat <<'EOF'`. Do not put Markdown backticks inside a double-quoted
+shell argument because the shell will execute them as command substitutions.
+
 ## PR Scope
 
 For the CLJS transition, prefer small PRs that make one architectural boundary
