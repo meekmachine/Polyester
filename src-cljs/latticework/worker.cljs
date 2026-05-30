@@ -12,6 +12,15 @@
             [latticework.tts :as tts]
             [latticework.vocal :as vocal]))
 
+;; Worker is the browser worker entry point. It owns one atom per agency,
+;; dispatches plain command maps by `:agency`, and posts the agencies' output
+;; maps back to JavaScript in order.
+;;
+;; The worker intentionally has no DOM, Loom3, backend, or render-loop access.
+;; The only timer here is blink's wall-clock auto trigger; animation snippets
+;; are still mixer work owned by the host after `scheduleSnippet` or
+;; `animationEffect` messages cross the boundary.
+
 (defonce animation-state (animation/create-state))
 (defonce blink-state (blink/create-state))
 (defonce blink-auto-timer (atom nil))

@@ -2,6 +2,15 @@
   (:require [clojure.string :as str]
             [latticework.protocol :as protocol]))
 
+;; Vocal is the sentence-level mouth animation planner. It turns canonical
+;; viseme timelines into a single combined snippet with lip, jaw, and
+;; coarticulation curves so Loom3 can mix mouth motion with every other active
+;; animation.
+;;
+;; The host owns the audio clock and AnimationMixer playback. This namespace
+;; emits schedule, seek, pause, resume, and cleanup plans as data so word-boundary
+;; drift can be corrected without adding a CLJS per-frame animation loop.
+
 (def agency-name "vocal")
 
 (def canonical-visemes

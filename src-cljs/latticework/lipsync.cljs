@@ -3,6 +3,16 @@
             [latticework.protocol :as protocol]
             [latticework.vocal :as vocal]))
 
+;; LipSync is the provider/timing compatibility planner. It maps word or Azure
+;; provider events into canonical viseme timelines, schedules legacy
+;; viseme-snippet output when needed, and emits debug metadata for provider
+;; timing/refinement decisions.
+;;
+;; Audio playback, Azure credentials, LiveKit tracks, and DOM clocks belong to
+;; the host. Production mouth playback should prefer `vocal.cljs` full sentence
+;; timelines; this namespace remains useful for provider normalization and
+;; compatibility paths.
+
 (def agency-name "lipsync")
 
 (def default-config

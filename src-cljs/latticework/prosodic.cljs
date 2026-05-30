@@ -1,6 +1,14 @@
 (ns latticework.prosodic
   (:require [latticework.protocol :as protocol]))
 
+;; Prosodic plans brow/head speech gestures. It normalizes loaded gesture
+;; snippets, schedules start-talking motion, emits pulse restarts for word
+;; boundaries, and returns fade/remove plans for stopping speech.
+;;
+;; Timers and mixer weight changes are host responsibilities. This planner
+;; emits the fade plan as data so the JS runtime or a stronger Loom3 host path
+;; can apply it without CLJS owning a render loop.
+
 (def agency-name "prosodic")
 
 (def default-config

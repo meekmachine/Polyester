@@ -1,6 +1,14 @@
 (ns latticework.gaze
   (:require [latticework.protocol :as protocol]))
 
+;; Gaze converts discrete gaze targets into eye/head AU snippet plans. It owns
+;; the worker-safe target state, intensity/duration config, stable snippet names,
+;; and remove/schedule outputs needed to retarget the character.
+;;
+;; This namespace does not watch pointer/camera streams or mutate Loom3
+;; directly. High-frequency sources should be coalesced by the host or a future
+;; stream adapter before they become scheduled snippet commands.
+
 (def agency-name "gaze")
 
 (def eye-head-aus

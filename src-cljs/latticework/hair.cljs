@@ -1,6 +1,14 @@
 (ns latticework.hair
   (:require [latticework.protocol :as protocol]))
 
+;; Hair is a serializable appearance/physics state planner. It stores chosen
+;; hair colors, outline options, visible parts, and physics settings, then emits
+;; apply-state/apply-physics outputs for the host.
+;;
+;; Three.js meshes, materials, object lookup, and physics runtime mutation stay
+;; outside CLJS. The host receives these plain maps and applies them to scene
+;; objects.
+
 (def agency-name "hair")
 
 (def hair-color-presets

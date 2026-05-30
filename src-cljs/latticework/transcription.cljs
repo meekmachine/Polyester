@@ -2,6 +2,16 @@
   (:require [clojure.string :as str]
             [latticework.protocol :as protocol]))
 
+;; Transcription is the CLJS policy reducer for speech-recognition events and
+;; audio-level observations. It tracks listening state, interim/final text,
+;; echo/interruption heuristics, restart recommendations, and the small command
+;; maps other agencies need to react to speech state.
+;;
+;; Browser SpeechRecognition, microphone capture, AudioContext nodes, backend
+;; transport, and actual restart timers stay in the host. This namespace only
+;; normalizes events and emits data describing what the host or another agency
+;; should do next.
+
 (def agency-name "transcription")
 
 (def default-config

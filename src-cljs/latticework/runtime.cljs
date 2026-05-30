@@ -12,6 +12,16 @@
             [latticework.tts :as tts]
             [latticework.vocal :as vocal]))
 
+;; Runtime is the in-process JavaScript host adapter for CLJS agencies. It
+;; creates agency atoms, dispatches command maps into those agencies, and
+;; translates CLJS output maps into callback calls that the existing TypeScript
+;; compatibility layer and LoomLarge can consume.
+;;
+;; This file owns callback glue only. It may forward schedule/control effects
+;; to host methods, but Loom3/Three still own clip construction, mixer updates,
+;; render timing, and disposal. Future stream integration should wrap this
+;; ordered output boundary instead of moving animation policy into React.
+
 (defn- fn-prop [value key]
   (let [candidate (and value (aget value key))]
     (when (fn? candidate) candidate)))

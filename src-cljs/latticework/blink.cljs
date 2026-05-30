@@ -1,6 +1,14 @@
 (ns latticework.blink
   (:require [latticework.protocol :as protocol]))
 
+;; Blink owns small, deterministic AU 43 planning. It stores blink config and
+;; counters, builds the seven-point eye-closure curve, and emits a scheduled
+;; snippet for the host animation layer.
+;;
+;; Auto-blink timers are managed by `runtime.cljs` / `worker.cljs`, not inside
+;; this planner. This keeps the planner serializable and lets worker and
+;; in-process clients share the same command/output behavior.
+
 (def agency-name "blink")
 
 (def default-state
