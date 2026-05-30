@@ -10,7 +10,7 @@ import {
   createTranscriptionAgency,
   createTTSAgency,
   createVocalAgency,
-} from '../dist/cljs/index.js';
+} from '../dist/index.js';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

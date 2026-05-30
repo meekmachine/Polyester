@@ -30,7 +30,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && npm run build:cljs && node scripts/copy-snippets.mjs",
+    "build": "tsup && npm run build:cljs && node scripts/expose-cljs-main-exports.mjs && node scripts/copy-snippets.mjs",
     "build:cljs": "shadow-cljs release npm worker",
     "dev": "tsup --watch",
     "dev:cljs": "shadow-cljs watch npm worker",
