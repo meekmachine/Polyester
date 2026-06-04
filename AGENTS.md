@@ -2,9 +2,15 @@
 
 ## Refactor Goal
 
-Polyester is intended to become the ClojureScript-first runtime package for the
-Character Loom agency system. Do not describe the migration as complete just
-because a CLJS namespace exists. Always distinguish:
+Polyester replaces Latticework as the runtime package for the Character Loom
+agency system. Treat Latticework references as stale or historical unless the
+user explicitly asks to inspect that repo. Do not route active agency work to
+Latticework, do not treat Latticework as the source of truth for runtime
+behavior, and do not open Latticework PRs for active Character Loom agency fixes.
+
+Polyester is still in the middle of the ClojureScript-first transition. Do not
+describe the migration as complete just because a CLJS namespace exists. Always
+distinguish:
 
 - CLJS planner/reducer code under `src-cljs/`
 - JS runtime and host callback glue
