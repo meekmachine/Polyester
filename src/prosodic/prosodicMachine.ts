@@ -10,7 +10,7 @@ import { createMachine, assign } from 'xstate';
 
 export interface ProsodicSnippet {
   name: string;
-  curves: Record<string, Array<{ time: number; intensity: number }>>;
+  curves: Record<string, Array<{ time: number; intensity: number; inherit?: boolean }>>;
   category: 'brow' | 'head';
   priority: number;
   intensityScale: number;
@@ -57,6 +57,7 @@ function normalizeSnippet(data: any, category: 'brow' | 'head', priority: number
         curves[key] = arr.map((k: any) => ({
           time: k.time ?? k.t ?? 0,
           intensity: k.intensity ?? k.v ?? 0,
+          ...(typeof k.inherit === 'boolean' ? { inherit: k.inherit } : {}),
         }));
         curves[key].sort((a, b) => a.time - b.time);
       }

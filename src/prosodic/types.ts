@@ -19,6 +19,7 @@ export interface AnimationSnippet {
 export interface AnimationCurve {
   time: number;
   intensity: number;
+  inherit?: boolean;
 }
 
 export type ProsodicChannel = 'brow' | 'head' | 'both';

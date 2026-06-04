@@ -3,7 +3,8 @@
     "54": [
       {
         "time": 0.0,
-        "intensity": 0.0
+        "intensity": 0.0,
+        "inherit": true
       },
       {
         "time": 0.15,
@@ -15,6 +16,11 @@
       }
     ],
     "53": [
+      {
+        "time": 0.0,
+        "intensity": 0.0,
+        "inherit": true
+      },
       {
         "time": 0.3,
         "intensity": 0.0

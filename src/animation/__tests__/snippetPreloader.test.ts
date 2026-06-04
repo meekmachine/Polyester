@@ -66,6 +66,15 @@ describe('snippetPreloader', () => {
     expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
+  it('bundles head nod snippets with inherited head-pitch anchors', async () => {
+    const resolved = await resolveSnippetEntry('speakingAnimationsList', 'headNodSmall');
+
+    expect(resolved?.source).toBe('bundled');
+    expect(resolved?.data.curves['54'][0]).toEqual({ time: 0, intensity: 0, inherit: true });
+    expect(resolved?.data.curves['53'][0]).toEqual({ time: 0, intensity: 0, inherit: true });
+    expect(resolved?.data.curves['53'].at(-1)?.intensity).toBe(0);
+  });
+
   it('ignores legacy preloaded bundle entries when reading custom snippet names', () => {
     const storage = createStorageMock({
       bundledAnimationSnippetsManifest: JSON.stringify({
