@@ -103,6 +103,7 @@ export class TTSService {
       lipsyncIntensity: config.lipsyncIntensity ?? 1.0,
       jawScale: config.jawScale ?? 1.0,
       animationAgency: config.animationAgency ?? undefined,
+      prosodicService: config.prosodicService ?? undefined,
     };
 
     this.callbacks = callbacks;
@@ -146,6 +147,7 @@ export class TTSService {
       speechRate: this.config.rate,
       jawScale: this.config.jawScale,
       animationAgency: this.config.animationAgency,
+      prosodicService: this.config.prosodicService,
     });
   }
 
@@ -960,6 +962,7 @@ export class TTSService {
         speechRate: this.config.rate,
         intensity: this.config.lipsyncIntensity,
         jawScale: this.config.jawScale,
+        prosodicService: this.config.prosodicService,
       });
     }
   }

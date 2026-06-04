@@ -115,6 +115,8 @@ export class VocalService {
       wordTimings: this.normalizeWordTimings(timeline.wordTimings),
     };
 
+    this.config.prosodicService?.startTalking();
+
     return name;
   }
 
@@ -182,6 +184,7 @@ export class VocalService {
 
     ctx.wordIndex = expectedIndex + 1;
     this.store.setCurrentWord(word);
+    this.config.prosodicService?.pulse(expectedIndex);
   }
 
   /**
@@ -212,6 +215,7 @@ export class VocalService {
 
     this.currentSentence = null;
     this.store.stopSpeaking();
+    this.config.prosodicService?.stopTalking();
   }
 
   /**
@@ -450,6 +454,7 @@ export class VocalService {
       // Clear sentence context if this was it
       if (this.currentSentence?.name === name) {
         this.currentSentence = null;
+        this.config.prosodicService?.stopTalking();
       }
 
       // Update state if this was the last snippet

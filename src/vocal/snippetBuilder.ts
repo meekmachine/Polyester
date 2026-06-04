@@ -556,7 +556,7 @@ export function buildVocalSnippet(
   config?: Partial<VocalConfig>,
   name?: string
 ): VocalSnippet {
-  const cfg: Required<Omit<VocalConfig, 'engine' | 'animationAgency'>> = {
+  const cfg: Required<Omit<VocalConfig, 'engine' | 'animationAgency' | 'prosodicService'>> = {
     ...DEFAULT_VOCAL_CONFIG,
     ...config,
   };

@@ -3,6 +3,8 @@
  * Type definitions for Text-to-Speech functionality
  */
 
+import type { ProsodicExpressionAgency } from '../vocal';
+
 export type TTSEngine = 'webSpeech' | 'sapi' | 'azure';
 export type WebSpeechReferenceMode = 'none' | 'displayMedia';
 export type PlaybackReferenceStatus =
@@ -44,6 +46,8 @@ export interface TTSConfig {
     setSnippetTime?: (name: string, timeSec: number) => void;
     seek?: (name: string, timeSec: number) => void;
   };
+  /** Prosodic expression agency triggered by speech lifecycle and word boundaries. */
+  prosodicService?: ProsodicExpressionAgency;
 }
 
 export interface TTSVoice {

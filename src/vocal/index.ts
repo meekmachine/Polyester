@@ -39,6 +39,7 @@ export type {
   VocalSource,
   VocalTimeline,
   VocalWordTiming,
+  ProsodicExpressionAgency,
   VocalConfig,
   VocalState,
 } from './types';

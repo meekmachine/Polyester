@@ -19,6 +19,20 @@ The desired architecture is data-first:
 - runtime outputs become observable streams at the JS boundary
 - LoomLarge bridges those streams into Effect-managed state
 
+## Agency Ownership Boundaries
+
+When a change concerns character behavior, first identify the Polyester agency
+that owns that behavior. Do not move agency behavior into LoomLarge call sites
+because a LoomLarge module exposes the symptom.
+
+In particular, speech-time prosody is owned by Polyester:
+
+- speech/vocal timing code triggers the prosodic expression agency
+- `src/prosodic/` owns prosodic state, pulse handling, scheduling, and fade-out
+- bundled head-nod snippets live under `src/animation/snippets/speaking/`
+- LoomLarge should configure or pass agencies, not author prosodic keyframes or
+  schedule head-nod snippets directly
+
 ## Documentation Discipline
 
 When implementation work exposes a recurring misunderstanding, missing

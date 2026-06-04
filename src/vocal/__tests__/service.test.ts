@@ -106,4 +106,32 @@ describe('VocalService word-boundary sync', () => {
     expect(seek).toHaveBeenCalledWith('azure_test_timeline', 0.34);
     service.dispose();
   });
+
+  it('triggers the prosodic expression agency from speech timing', () => {
+    const prosodicService = {
+      startTalking: vi.fn(),
+      stopTalking: vi.fn(),
+      pulse: vi.fn(),
+    };
+    const service = new VocalService({
+      animationAgency: {
+        schedule: (snippet) => snippet.name,
+        remove: vi.fn(),
+        seek: vi.fn(),
+      },
+      prosodicService,
+    });
+
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+
+    service.startSentence('hello world');
+    service.onWordBoundary('hello', 0, 0);
+    service.stopSentence();
+
+    expect(prosodicService.startTalking).toHaveBeenCalledTimes(1);
+    expect(prosodicService.pulse).toHaveBeenCalledWith(0);
+    expect(prosodicService.stopTalking).toHaveBeenCalledTimes(1);
+
+    service.dispose();
+  });
 });

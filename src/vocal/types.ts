@@ -74,6 +74,14 @@ export interface VocalTimeline {
   source?: VocalSource;
 }
 
+/** Prosodic expression agency triggered by speech timing. */
+export interface ProsodicExpressionAgency {
+  startTalking: () => void;
+  stopTalking: () => void;
+  pulse: (wordIndex: number) => void;
+  stop?: () => void;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,6 +120,9 @@ export interface VocalConfig {
     resumeSnippet?: (name: string) => void;
     seek?: (name: string, offsetSec: number) => void;
   };
+
+  /** Prosodic expression agency for speech-time brow and head gestures. */
+  prosodicService?: ProsodicExpressionAgency;
 }
 
 export interface VocalState {
@@ -126,7 +137,7 @@ export interface VocalState {
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const DEFAULT_VOCAL_CONFIG: Required<Omit<VocalConfig, 'engine' | 'animationAgency'>> = {
+export const DEFAULT_VOCAL_CONFIG: Required<Omit<VocalConfig, 'engine' | 'animationAgency' | 'prosodicService'>> = {
   intensity: 1.0,
   speechRate: 1.0,
   jawScale: 1.0,
