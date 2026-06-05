@@ -19,6 +19,15 @@ The desired architecture is data-first:
 - runtime outputs become observable streams at the JS boundary
 - LoomLarge bridges those streams into Effect-managed state
 
+## Karpathy-Style Agent Discipline
+
+- Think before coding: state assumptions, name ambiguity, and ask before implementing when multiple interpretations would change the solution.
+- Prefer the smallest change that satisfies the request. Do not add speculative flags, fallbacks, abstractions, or configurability that the user did not ask for.
+- Keep PRs surgical. Package identity, runtime behavior, CI wiring, docs, and migration strategy should be separate changes unless the user explicitly asks for one combined PR.
+- Every changed line should trace directly to the user's request. If you notice unrelated cleanup, mention it instead of editing it.
+- Define success criteria before editing, then verify them with focused checks. For behavior changes, add or update tests that prove the intended behavior.
+- Do not present TypeScript compatibility exports, app-side feature flags, or fallback paths as evidence that Polyester has become a CLJS replacement. Replacement means the package behavior is CLJS-backed and verified by parity tests.
+
 ## Documentation Discipline
 
 When implementation work exposes a recurring misunderstanding, missing
