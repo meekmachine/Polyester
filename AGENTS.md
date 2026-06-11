@@ -39,6 +39,15 @@ inspect the actual committed dependency spec and lockfile. A full Git SHA pin
 does not move when Polyester `main` moves. A LoomLarge PR is needed to bump the
 pin unless CI is explicitly resolving a linked Polyester PR for a preview.
 
+## Runtime Boundary Discipline
+
+When a consumer such as LoomLarge fails because Polyester's package entrypoint,
+exports, or bundled runtime artifacts are incompatible with a bundler or runtime,
+fix the Polyester package boundary here. Do not work around the failure by
+copying, stubbing, or reimplementing Polyester/Latticework runtime services in a
+consumer app. The acceptable shape is: repair this package's source/build/export
+surface, verify the package artifact, then bump the consumer's pinned dependency.
+
 ## Stream And State Guidance
 
 Do not introduce new agency-local RxJS or Most streams inside CLJS planner code.
